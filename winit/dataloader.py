@@ -350,6 +350,40 @@ class SimulatedState(SimulatedData):
         return "state"
 
 
+class SimulatedL2X(SimulatedData):
+    """
+    Simulated L2X data
+    """
+
+    def __init__(
+        self,
+        data_path: pathlib.Path = pathlib.Path("./data/simulated_data_l2x"),
+        batch_size: int = 100,
+        testbs: int | None = None,
+        deterministic: bool = False,
+        file_name_prefix: str = "state_dataset_",
+        ground_truth_prefix: str = "state_dataset_importance",
+        cv_to_use: List[int] | int | None = None,
+        seed: int | None = 1234,
+    ):
+        super().__init__(
+            data_path,
+            batch_size,
+            testbs,
+            deterministic,
+            file_name_prefix,
+            ground_truth_prefix,
+            cv_to_use,
+            seed,
+        )
+
+    def get_name(self) -> str:
+        return "simulated_data_l2x"
+
+    @property
+    def data_type(self) -> str:
+        return "state"
+
 class SimulatedSwitch(SimulatedData):
     """
     Simulated Switch data

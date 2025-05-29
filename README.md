@@ -87,6 +87,7 @@ CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --train --skipe
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --delay 2 --train --skipexplain
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data state --train --skipexplain
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data mimic --train --skipexplain
+CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data data_l2x --train --skipexplain
 ```
 
 The models will be saved at `./ckpt/[MODELTYPE]/[DATASET]/`
@@ -102,6 +103,7 @@ CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --traingen --sk
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --delay 2 --traingen --skipexplain
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data state --traingen --skipexplain
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data mimic --traingen --skipexplain
+CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data data_l2x --traingen --skipexplain
 ```
 
 The generators will be saved at `./ckpt/[MODELTYPE]/[DATASET]/[CV]/feature_generator/` or
@@ -118,6 +120,7 @@ CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --eval
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --delay 2 --eval
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data state --eval
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data mimic --eval
+CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data data_l2x --eval
 ```
 
 The importances will be saved
@@ -132,6 +135,7 @@ CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --traingen --sk
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --delay 2 --traingen --skipexplain --explainer fit
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data state --traingen --skipexplain --explainer fit
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data mimic --traingen --skipexplain --explainer fit
+CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data data_l2x --traingen --skipexplain --explainer fit
 ```
 
 Then we can compute, save and evaluate the importances. 
@@ -141,6 +145,7 @@ CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --eval --explai
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --delay 2 --eval --explainer deeplift gradientshap ig fo afo fit dynamask
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data state --eval --explainer deeplift gradientshap ig fo afo fit dynamask
 CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data mimic --eval --explainer deeplift gradientshap ig fo afo fit dynamask
+CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data data_l2x --eval --explainer deeplift gradientshap ig fo afo dynamask
 ```
 
 The results of the evaluation will be saved at the same file `./output/[MODELTYPE]/[DATASET]/results.csv`

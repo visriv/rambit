@@ -16,3 +16,4 @@ dynamask/winit_paper_results/
 *.png
 *.gz
 .idea/
+winit.egg-info/

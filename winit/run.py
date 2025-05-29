@@ -12,7 +12,7 @@ import pandas as pd
 import torch.cuda
 
 from winit.dataloader import Mimic, SimulatedSwitch, SimulatedState, SimulatedSpike, \
-    WinITDataset, SimulatedData
+    WinITDataset, SimulatedData, SimulatedL2X
 from winit.explainer.explainers import BaseExplainer, DeepLiftExplainer, IGExplainer, \
     GradientShapExplainer
 from winit.explainer.masker import Masker
@@ -100,6 +100,10 @@ class Params:
         if data == "state":
             kwargs["testbs"] = 300 if testbs == -1 else testbs
             return SimulatedState(**kwargs)
+        
+        if data == "data_l2x":
+            kwargs["testbs"] = 300 if testbs == -1 else testbs
+            return SimulatedL2X(**kwargs)
 
         raise ValueError(f"Unknown data {data}")
 
@@ -277,7 +281,7 @@ class Params:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run simulated experiments')
     parser.add_argument('--data', type=str, default='spike',
-                        choices=['spike', 'state', 'switch', 'mimic'], help='Dataset')
+                        choices=['spike', 'state', 'switch', 'mimic', 'data_l2x'], help='Dataset')
     parser.add_argument('--delay', type=int, default=0, choices=[0, 1, 2, 3, 4],
                         help='Simulation Spike Delay amount')
     parser.add_argument('--explainer', nargs='+', type=str, default=['winit'],
@@ -326,6 +330,7 @@ if __name__ == '__main__':
     # generator args
     parser.add_argument('--joint', action='store_true', help="use joint generator")
     parser.add_argument('--conditional', action='store_true', help="use conditional generator")
+    parser.add_argument('--epoch_gen', type=int, default=100, help="epochs for generator training")
 
     # dynamask args
     parser.add_argument('--area', type=float, nargs='+', default=None, help='Dynamask Area')
@@ -374,6 +379,7 @@ if __name__ == '__main__':
     train_models = argdict['train']
     train_gen = argdict['traingen']
     result_file = argdict["resultfile"]
+    epoch_gen = argdict["epoch_gen"]
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -408,13 +414,14 @@ if __name__ == '__main__':
 
         # train generators
         if train_gen:
+            print('training gen for {} epochs'.format(epoch_gen))
             generators_to_train = params.generators_to_train
             for explainer_name, explainer_dict_list in generators_to_train.items():
                 for explainer_dict in explainer_dict_list:
                     runner.get_explainers(explainer_name, explainer_dict=explainer_dict)
                     log.info(
                         f"Training Generator...Data={dataset.get_name()}, Explainer={explainer_name}")
-                    runner.train_generators(num_epochs=300)
+                    runner.train_generators(num_epochs=epoch_gen)
             log.info("Training Generator Done.")
 
         for explainer_name, explainer_dict_list in all_explainer_dict.items():
