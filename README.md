@@ -1,15 +1,13 @@
-<p align="center">
-<a href="https://layer6.ai/"><img src="https://github.com/layer6ai-labs/WinIT/blob/main/logos/logobox.jpg" width="180"></a>
-</p>
 
-## ICLR'23 "Temporal Dependencies in Feature Importance for Time Series Prediction"
+## GRAPH WINIT
 
-Authors: KK Leung, Clayton Rooke, Jonathan Smith, Saba Zuberi, [Maksims Volkovs](http://www.cs.toronto.edu/~mvolkovs)  
-[[paper](https://openreview.net/forum?id=C0q9oBc3n4)]
+Authors:VIshal Srivastava, XYZ  
+[[paper](https://openreview.net/forum?id=123)]
+
 
 ## Introduction
 
-This repository contains a full implementation of the WinIT algorithm along with all the other
+This repository contains a full implementation of the GraphWINIT algorithm along with all the other
 results for comparison. It includes a notebook that demonstrates the reproducibility of
 the figures and graphs.
 
