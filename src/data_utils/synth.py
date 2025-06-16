@@ -8,8 +8,8 @@ def process_Synth(split_no = 1, device = None, base_path = spike_path, regressio
         label_noise = None):
 
     split_path = os.path.join(base_path, 'split={}.pt'.format(split_no))
-
-    D = torch.load(split_path)
+    print('loading from this file:', split_path)
+    D = torch.load(split_path,  weights_only=False)
 
     D['train_loader'].X = D['train_loader'].X.float().to(device)
     D['train_loader'].times = D['train_loader'].times.float().to(device)

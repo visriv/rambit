@@ -14,7 +14,7 @@ from src.data_utils  import process_MITECG
 from src.datagen.spikes_data_new  import SpikeTrainDataset
 from src.data_utils  import process_Epilepsy, process_PAM
 from src.explainer.winitexplainers import WinITExplainer
-from src.utils import aggregate_scores
+from src.utils.basic_utils import aggregate_scores
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 

@@ -8,8 +8,8 @@ import torch
 from captum.attr import IntegratedGradients, DeepLift, GradientShap
 
 from src.explainer.generator.generator import GeneratorTrainingResults
-from src.models import TorchModel
-from src.utils import resolve_device
+from src.base_models import TorchModel
+from src.utils.basic_utils import resolve_device
 
 
 class BaseExplainer(abc.ABC):

@@ -3,16 +3,16 @@ from torch import nn
 import torch.nn.functional as F
 from torch import linalg
 
-from txai.models.encoders.transformer_simple import TransformerMVTS
+from src.models.encoders.transformer_simple import TransformerMVTS
 from txai.smoother import smoother
-from txai.utils.functional import transform_to_attn_mask
-from txai.models.modelv2 import MaskGenStochasticDecoder_NoCycleParam
+from src.utils.functional import transform_to_attn_mask
+from src.models.modelv2 import MaskGenStochasticDecoder_NoCycleParam
 #from txai.models.mask_generators.window_mask import MaskGenWindow
 
-from txai.utils.predictors.loss import GSATLoss, ConnectLoss
-from txai.utils.predictors.loss_smoother_stats import *
-from txai.utils.functional import js_divergence
-from txai.utils.concepts import PreChosenConceptList
+from src.utils.predictors.loss import GSATLoss, ConnectLoss
+from src.utils.predictors.loss_smoother_stats import *
+from src.utils.functional import js_divergence
+from src.utils.concepts import PreChosenConceptList
 
 transformer_default_args = {
     'enc_dropout': None,

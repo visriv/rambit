@@ -8,8 +8,8 @@ import torch
 import torch.optim as optim
 from torch.nn import Softmax
 
-from txai.baselines.Dynamask.attribution.perturbation import Perturbation
-from txai.baselines.Dynamask.utils.metrics import get_entropy, get_information
+from src.baselines.Dynamask.attribution.perturbation import Perturbation
+from src.baselines.Dynamask.utils.metrics import get_entropy, get_information
 
 class Mask:
     """This class allows to fit and interact with dynamic masks.
