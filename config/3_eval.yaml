@@ -1,0 +1,78 @@
+# config/main.yaml
+
+# ─── Dataset & Seeds ──────────────────────────────────────────────────────────
+data: spike                     # choices: [spike, state, switch, mimic, data_l2x]
+delay: 0                        # choices: [0,1,2,3,4]
+explainer:                      # one or more of [fit, winit, ig, deeplift, fo, afo, gradientshap, dynamask]
+  - winit
+cv:                             # cross‐validation folds to run
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+testbs: 128                     # test batch size
+dataseed: 1234                  # random state for data split
+datapath: "./data/simulated_state_data"                  # path to raw data (null = use default)
+explainerseed: 2345             # random state for explainer
+
+# ─── Output / Path Settings ───────────────────────────────────────────────────
+outpath: "./output/"            # where to save outputs
+ckptpath: "./ckpt/"             # where to load/save model & generator
+plotpath: "./plots/"            # where to dump plotting results
+logpath: "./logs/"              # where to write log files
+resultfile: "results.csv"       # name of CSV for final results
+logfile: null                   # if non‐null, name of individual run’s log file
+
+# ─── Run Modes ────────────────────────────────────────────────────────────────
+train: false                    # if true, run model training
+traingen: false                 # if true, run generator training
+skipexplain: false              # if true, skip explanation generation
+eval: true                     # if true, run feature‐importance evaluation
+loglevel: info                  # one of [warning, info, error, debug]
+nondeterministic: false         # if true, PyTorch is non‐deterministic
+
+# ─── Base Model / Training Hyperparams ────────────────────────────────────────
+hiddensize: 200                 # hidden size of base model
+batchsize: 100                  # batch size of base model
+dropout: 0.5                    # dropout rate
+numlayers: 1                    # number of RNN layers (choices: [1,2,3])
+modeltype: "gru"                # architecture (choices: [conv, lstm, gru])
+lr: null                        # learning rate (null = use default inside code)
+
+# ─── Generator Settings ───────────────────────────────────────────────────────
+joint: false                    # if true, use joint generator
+conditional: false              # if true, use conditional generator
+epoch_gen: 200                  # # of epochs for generator training
+
+# ─── Dynamask‐Specific Hyperparams ────────────────────────────────────────────
+area: null                      # float list; e.g. [0.1,0.2] or null
+blurtype: null                  # one of [gaussian, fadema] or null
+deletion: null                  # boolean or null
+sizereg: null                   # integer or null
+timereg: null                   # integer or null
+loss: null                      # one of [logloss, ce] or null
+epoch: 200                      # # of Dynamask epochs
+lastonly: null                  # "True" or "False" or null
+
+# ─── WinIT (and FIT) Settings ─────────────────────────────────────────────────
+window:                         # list of window sizes
+  - 10
+winitmetric:                    # list of metrics (choices: [kl, js, pd])
+  - pd
+usedatadist: false              # if true, sample masked features from data dist
+samples: -1                     # # of samples for masked features in WinIT
+
+# ─── Evaluation Settings ─────────────────────────────────────────────────────
+maskseed: 43814                 # tie‐breaker seed for importance scores
+mask:                           # mask strategies (choices: [std, end])
+  - std
+  - end
+top: 50                         # # of top‐X observations to mask per series
+toppc: 0.05                     # fraction of top observations to mask
+drop:                           # masking strategies (choices: [local, global, bal])
+  - local
+  - global
+  - bal
+aggregate:                      # aggregation methods (choices: [mean, max, absmax])
+  - mean
