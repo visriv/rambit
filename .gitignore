@@ -2,6 +2,7 @@ ckpt
 output
 outputs
 plots
+data/
 .ipynb_checkpoints/
 __pycache__/
 experiment_results/

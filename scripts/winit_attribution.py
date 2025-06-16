@@ -1,3 +1,5 @@
+# import sys; 
+# print(sys.path)
 import re, time
 import argparse
 from pathlib import Path
@@ -6,21 +8,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import trange
 
-from txai.models.encoders.transformer_simple import TransformerMVTS
-from txai.models.encoders.simple import CNN, LSTM
-from txai.utils.experimental import get_explainer
-from txai.vis.vis_saliency import vis_one_saliency
+from src.models.encoders.transformer_simple import TransformerMVTS
+from src.models.encoders.simple import CNN, LSTM
+from src.utils.experimental import get_explainer
+from src.vis.vis_saliency import vis_one_saliency
 from src.data_utils import process_Synth
 from src.data_utils import process_MITECG, process_Boiler
 # from txai.utils.data.anomaly import process_Yahoo
 from src.datagen.spikes_data_new import SpikeTrainDataset
 from src.data_utils import process_Epilepsy, process_PAM
 
-from txai.models.modelv6_v2 import Modelv6_v2
+from src.models.modelv6_v2 import Modelv6_v2
 # from txai.models.bc_model import TimeXModel
 # from txai.models.bc_model_irreg import TimeXModel_Irregular
 
-from txai.utils.evaluation import ground_truth_xai_eval, ground_truth_IoU
+from src.utils.evaluation import ground_truth_xai_eval, ground_truth_IoU
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -348,7 +350,7 @@ def main(args):
             torch.save((Xsave,gexp,ysave,zx,zp), args.savepath) # Saves all needed info
 
     elif args.exp_method == "winit":
-        from winit_wrapper import WinITWrapper, aggregate_scores # Moved here bc of import issues on Owen's side
+        from winit_feature_generator import WinITWrapper, aggregate_scores # Moved here bc of import issues on Owen's side
         model = get_model(args, X)
         model.load_state_dict(torch.load(args.model_path))
         model.to(device)
@@ -427,7 +429,7 @@ if __name__ == '__main__':
     parser.add_argument('--exp_method', type = str, help = "Options: ['ig', 'dyna', 'winit', 'ours']")
     parser.add_argument('--dataset', type = str)
     parser.add_argument('--split_no', default = 1, type=int)
-    parser.add_argument('--model_path', type = str, help = 'path to model')
+    parser.add_argument('--model_path', type = str,  default="MODELS_PATH", help = 'path to model')
     parser.add_argument('--model_type', type = str, default="transformer", choices=["transformer", "cnn", "lstm"])
     parser.add_argument('--org_v', action = 'store_true')
     parser.add_argument('--data_path', default="/data/", type = str, help = 'path to datasets root')
