@@ -186,6 +186,7 @@ class ModelTrainer:
         Load the model for the file.
         """
         self.model.load_state_dict(
+            
             torch.load(str(self.model_file_name), map_location=torch.device(self.device))
         )
 

@@ -77,6 +77,7 @@ class BiWinITExplainer(BaseExplainer):
         self.joint = joint
         self.conditional = conditional
         self.metric = metric
+        self.mask_strategy = kwargs['mask_strategy'],
         self.height = kwargs['height']
         self.generators: BaseFeatureGenerator | None = None
         self.path = path
@@ -150,13 +151,13 @@ class BiWinITExplainer(BaseExplainer):
                     # counterfactual shape = (num_feat, num_samples, batch_size, time_forward)
                     for f in range(num_features):
                         ## Set S1 ##
-                        
                         #out shape should be self.num_features, self.num_samples, batch_size, t+1
                         x_rep_in = self.replace_cfs(x[:, :, : t + 1], 
                                                t_start = t-n-1,
                                                t_end = t,
+                                               mask_strategy = self.mask_strategy[0],
                                                d_start = f,
-                                               height = 2,
+                                               height = self.height,
                                                slope = 0.01,
                                                num_samples = self.num_samples,
                                                device = self.device,
@@ -181,12 +182,13 @@ class BiWinITExplainer(BaseExplainer):
                         i_ab_S1_array[t, f, n, :] = i_ab_S1
 
                         ## Set S2 ##
-                        # Now calculate iSabThick_withoutInit
+                        # Now calculate for S2
                         x_rep_in = self.replace_cfs(x[:, :, : t + 1], 
                                                 t_start = t-n-1,
                                                 t_end = t,
+                                                mask_strategy = self.mask_strategy[1],
                                                 d_start = f,
-                                                height = 2,
+                                                height = self.height,
                                                 slope = 0.01,
                                                 num_samples = self.num_samples,
                                                 device = self.device,
@@ -277,6 +279,8 @@ class BiWinITExplainer(BaseExplainer):
 
         return X_out
 
+
+    # def build_rectangular_mask():
 
     def build_upper_right_mask(
         self,

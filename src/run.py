@@ -21,7 +21,7 @@ from src.explainer.masker import Masker
 from src.explanationrunner import ExplanationRunner
 from src.utils.basic_utils import append_df_to_csv
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1,2"
 class Params:
     def __init__(self, argdict: Dict[str, Any]):
         self.argdict = argdict
@@ -145,7 +145,8 @@ class Params:
 
                     if explainer == "biwinit":
                         height = self.argdict["height"]
-                        explainer_dict_window["height"] = height
+                        mask_strategy = self.argdict["mask_strategy"]
+                        explainer_dict_window["mask_strategy"] = mask_strategy
                     if nsamples != -1:
                         explainer_dict_window["n_samples"] = nsamples
                     for winit_metric in winit_metrics:
@@ -319,7 +320,8 @@ if __name__ == '__main__':
     result_file = argdict["resultfile"]
     epoch_gen = argdict["epoch_gen"]
     train_ratio = argdict.get("train_ratio") or 0.8
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cpu"
 
     # parse the arg
     params = Params(argdict)
@@ -343,7 +345,7 @@ if __name__ == '__main__':
         dataset.load_data(train_ratio=train_ratio)
         runner = ExplanationRunner(dataset, device, out_path, ckpt_path, plot_path)
         # import torch
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
         runner.init_model(**model_args)
         use_all_times = not isinstance(dataset, (Mimic, MITECG, PAM))

@@ -104,7 +104,6 @@ class WinITDataset(abc.ABC):
         # print(len(train_label))
         feature_size = train_data.shape[1]
         train_tensor_dataset = TensorDataset(torch.Tensor(train_data), torch.Tensor(train_label))
-        valid_tensor_dataset = TensorDataset(torch.Tensor(valid_data), torch.Tensor(valid_label))
         test_tensor_dataset = TensorDataset(torch.Tensor(test_data), torch.Tensor(test_label))
 
         testbs = self.testbs if self.testbs is not None else len(test_data)
@@ -117,21 +116,22 @@ class WinITDataset(abc.ABC):
             for train_indices, valid_indices in kf.split(train_data):
                 train_subset = Subset(train_tensor_dataset, train_indices)
                 valid_subset = Subset(train_tensor_dataset, valid_indices)
-                train_loaders.append(DataLoader(train_subset, batch_size=self.batch_size, pin_memory=True))
-                valid_loaders.append(DataLoader(valid_subset, batch_size=self.batch_size, pin_memory=True))
+                train_loaders.append(DataLoader(train_subset, batch_size=self.batch_size))
+                valid_loaders.append(DataLoader(valid_subset, batch_size=self.batch_size))
             
             self.train_loaders = train_loaders
             self.valid_loaders = valid_loaders
 
         else:
-            train_loader = DataLoader(train_tensor_dataset, batch_size=testbs, pin_memory=True)
-            valid_loader = DataLoader(valid_tensor_dataset, batch_size=testbs, pin_memory=True)
+            valid_tensor_dataset = TensorDataset(torch.Tensor(valid_data), torch.Tensor(valid_label))
+            train_loader = DataLoader(train_tensor_dataset, batch_size=testbs)
+            valid_loader = DataLoader(valid_tensor_dataset, batch_size=testbs)
             train_loaders.append(train_loader)
             valid_loaders.append(valid_loader)
             self.train_loaders = train_loaders
             self.valid_loaders = valid_loaders
         
-        test_loader = DataLoader(test_tensor_dataset, batch_size=testbs, pin_memory=True)
+        test_loader = DataLoader(test_tensor_dataset, batch_size=testbs)
         self.test_loader = test_loader
         self.feature_size = feature_size
 
