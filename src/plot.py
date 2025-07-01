@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from src.dataloader import WinITDataset
-from src.utils import aggregate_scores
+from src.utils.basic_utils import aggregate_scores
 
 
 class BoxPlotter:
@@ -144,4 +144,4 @@ class BoxPlotter:
         plt.savefig(str(save_location), bbox_inches="tight", pad_inches=0)
 
         plt.close()
-        print('plot saved at: ', save_location)
+        # print('plot saved at: ', save_location)

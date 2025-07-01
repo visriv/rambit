@@ -11,7 +11,7 @@ import torch
 from scipy.stats import rankdata
 from sklearn import metrics
 from torch.utils.data import DataLoader
-
+from tqdm import tqdm
 from src.dataloader import WinITDataset, SimulatedData
 from src.explainer.dynamaskexplainer import DynamaskExplainer
 from src.explainer.masker import Masker
@@ -26,10 +26,12 @@ from src.explainer.explainers import (
 )
 from src.explainer.fitexplainers import FITExplainer
 from src.explainer.generator.generator import GeneratorTrainingResults
-from src.explainer.winitexplainers import WinITExplainer
+from src.explainer.original_winitexplainers import OGWinITExplainer
+from src.explainer.biwinitexplainers import BiWinITExplainer
+# from src.explainer.winitexplainers import WinITExplainer
 from src.modeltrainer import ModelTrainerWithCv
 from src.plot import BoxPlotter
-from src.utils import aggregate_scores
+from src.utils.basic_utils import aggregate_scores
 
 
 class ExplanationRunner:
@@ -236,12 +238,32 @@ class ExplanationRunner:
                 kwargs.pop("usedatadist")
             for cv in self.dataset.cv_to_use():
                 train_loader = train_loaders[cv] if train_loaders is not None else None
-                self.explainers[cv] = WinITExplainer(
+                self.explainers[cv] = OGWinITExplainer(
                     self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
                     train_loader=train_loader,
+                    **kwargs,
+                )
+
+        elif explainer_name == "biwinit":
+            train_loaders = (
+                self.dataset.train_loaders if explainer_dict.get("usedatadist") is True else None
+            )
+            self.explainers = {}
+            kwargs = explainer_dict.copy()
+            if "usedatadist" in kwargs:
+                kwargs.pop("usedatadist")
+            for cv in self.dataset.cv_to_use():
+                train_loader = train_loaders[cv] if train_loaders is not None else None
+                self.explainers[cv] = BiWinITExplainer(
+                    self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    train_loader=train_loader,
+                    # height = kwargs['height'],
                     **kwargs,
                 )
 
@@ -432,32 +454,36 @@ class ExplanationRunner:
             iSab_list     = [] 
             IS_list     = []  
 
-            for x, y in dataloader:
+            for x, y in tqdm(dataloader, desc=f"CV={cv} batches", total=len(dataloader)):
                 x = x.to(self.device)
 
                 # unpack however many things .attribute() returns
                 ret = self.explainers[cv].attribute(x)
-                if (len(ret) > 1):
-                    score, extra1, extra2 = ret# if isinstance(ret, (tuple, list)) else (ret,)
+                if isinstance(ret, (tuple, list)):
+                    # unpack exactly three if available, otherwise pad with Nones
+                    score = ret[0]
+                    extra1 = ret[1] if len(ret) > 1 else None
+                    extra2 = ret[2] if len(ret) > 2 else None
+                    iSab_list.append(extra1)
+                    IS_list.append(extra2)
                 else:
+                    # ret is just a single array
                     score = ret
+                    extra1 = None
+                    extra2 = None
 
                 importance_list.append(score)
-                iSab_list.append(extra1)
-                IS_list.append(extra2)
                 
-                # # on first batch, initialize extra_lists
-                # if extra_lists is None:
-                #     extra_lists = [[] for _ in extras]
-
-                # append each extra to its list
-                # for j, arr in enumerate(extras):
-                #     extra_lists[j].append(arr)
-
             # concatenate along batch/time dimension
             importance_scores = np.concatenate(importance_list, axis=0)
-            iSab_scores = np.concatenate(iSab_list, axis=0)
-            IS_scores = np.concatenate(IS_list, axis=0)
+            if iSab_list:
+                iSab_scores = np.concatenate(iSab_list, axis=0)
+            else:
+                iSab_scores = np.empty((0,))
+            if IS_list:
+                IS_scores = np.concatenate(IS_list, axis=0)
+            else:
+                IS_scores = np.empty((0,))
             
             all_importance_scores[cv] = importance_scores
             all_iSab[cv] = iSab_scores

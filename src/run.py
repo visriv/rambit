@@ -13,13 +13,13 @@ import torch.cuda
 from omegaconf import OmegaConf
 from argparse import Namespace 
 import os
-from src.dataloader import Mimic, SimulatedSwitch, SimulatedState, SimulatedSpike, \
+from src.dataloader import Mimic, MITECG, PAM, SimulatedSwitch, SimulatedState, SimulatedSpike, \
     WinITDataset, SimulatedData, SimulatedL2X
 from src.explainer.explainers import BaseExplainer, DeepLiftExplainer, IGExplainer, \
     GradientShapExplainer
 from src.explainer.masker import Masker
 from src.explanationrunner import ExplanationRunner
-from src.utils import append_df_to_csv
+from src.utils.basic_utils import append_df_to_csv
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 class Params:
@@ -95,6 +95,14 @@ class Params:
         if data == "mimic":
             kwargs["testbs"] = 1000 if testbs == -1 else testbs
             return Mimic(**kwargs)
+        
+        if (data == "mitecg") or (data == "mitecg1"):
+            kwargs["testbs"] = 1000 if testbs == -1 else testbs
+            return MITECG( **kwargs)
+        
+        if (data == "pam"):
+            kwargs["testbs"] = 1000 if testbs == -1 else testbs
+            return PAM( **kwargs)
 
         if data == "switch":
             kwargs["testbs"] = 300 if testbs == -1 else testbs
@@ -119,9 +127,11 @@ class Params:
             if explainer == "dynamask":
                 explainer_dict = self._resolve_dynamask_explainer_dict()
                 all_explainer_dict[explainer] = [explainer_dict]
-            elif explainer == "winit":
+            elif explainer in ["winit", "biwinit"]:
                 windows = self.argdict["window"]
                 winit_metrics = self.argdict["winitmetric"]
+                
+                
                 winit_explainer_dict_list = []
                 generator_dict_list = []
                 for window in windows:
@@ -132,6 +142,10 @@ class Params:
                         "usedatadist": self.argdict['usedatadist'],
                         "random_state": self.argdict["explainerseed"],
                     }
+
+                    if explainer == "biwinit":
+                        height = self.argdict["height"]
+                        explainer_dict_window["height"] = height
                     if nsamples != -1:
                         explainer_dict_window["n_samples"] = nsamples
                     for winit_metric in winit_metrics:
@@ -141,7 +155,7 @@ class Params:
 
                     generator_dict_list.append(explainer_dict_window)
                 all_explainer_dict[explainer] = winit_explainer_dict_list
-                generator_dict["winit"] = generator_dict_list
+                generator_dict[explainer] = generator_dict_list
             else:
                 explainer_dict = {}
                 if explainer in ["fit", "fo", "afo"] and nsamples != -1:
@@ -213,7 +227,7 @@ class Params:
             elif model_type == "LSTM":
                 num_epochs = 30
         else:
-            num_epochs = 30
+            num_epochs = 50
         self._model_train_args = {"num_epochs": num_epochs, "lr": lr}
 
         base_out_path = pathlib.Path(self.argdict["outpath"])
@@ -304,7 +318,7 @@ if __name__ == '__main__':
     train_gen = argdict['traingen']
     result_file = argdict["resultfile"]
     epoch_gen = argdict["epoch_gen"]
-
+    train_ratio = argdict.get("train_ratio") or 0.8
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # parse the arg
@@ -326,10 +340,13 @@ if __name__ == '__main__':
     all_df = []
     try:
         # load data and train model
-        dataset.load_data()
+        dataset.load_data(train_ratio=train_ratio)
         runner = ExplanationRunner(dataset, device, out_path, ckpt_path, plot_path)
+        # import torch
+        torch.cuda.empty_cache()
+
         runner.init_model(**model_args)
-        use_all_times = not isinstance(dataset, Mimic)
+        use_all_times = not isinstance(dataset, (Mimic, MITECG, PAM))
         if train_models:
             runner.train_model(**model_train_args, use_all_times=use_all_times)
         else:

@@ -1,11 +1,11 @@
 import torch
 
-from txai.utils.predictors.loss import Poly1CrossEntropyLoss
-from txai.trainers.train_transformer import train
-from txai.models.encoders.simple import LSTM
-from txai.utils.data import process_Synth
-from txai.utils.predictors import eval_mvts_transformer
-from txai.synth_data.simple_spike import SpikeTrainDataset
+from src.utils.predictors.loss import Poly1CrossEntropyLoss
+from src.trainers.train_transformer import train
+from src.models.encoders.simple import LSTM
+from src.data_utils import process_Synth
+from src.utils.predictors import eval_mvts_transformer
+from src.datagen.spikes_data_new import SpikeTrainDataset
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -17,7 +17,7 @@ clf_criterion = Poly1CrossEntropyLoss(
 )
 
 for i in range(1, 6):
-    D = process_Synth(split_no = i, device = device, base_path = '/n/data1/hms/dbmi/zitnik/lab/users/owq978/TimeSeriesCBM/datasets/SeqCombSingleBetter')
+    D = process_Synth(split_no = i, device = device, base_path = './data/SeqCombSingleBetter')
     train_loader = torch.utils.data.DataLoader(D['train_loader'], batch_size = 64, shuffle = True)
 
     val, test = D['val'], D['test']
@@ -31,7 +31,7 @@ for i in range(1, 6):
 
     optimizer = torch.optim.Adam(model.parameters(), lr = 3e-4)
     
-    spath = 'models/Scomb_lstm_split={}.pt'.format(i)
+    spath = 'ckpt/Scomb_lstm_split={}.pt'.format(i)
 
     model, loss, auc = train(
         model,

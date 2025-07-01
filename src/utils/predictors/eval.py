@@ -1,8 +1,8 @@
 import torch
 import numpy as np
 from sklearn.metrics import f1_score, average_precision_score, roc_auc_score
-from txai.models.run_model_utils import batch_forwards_TransformerMVTS
-from txai.models.encoders.simple import CNN, LSTM
+from src.models.run_model_utils import batch_forwards_TransformerMVTS
+from src.models.encoders.simple import CNN, LSTM
 
 @torch.no_grad()
 def eval_on_tuple(test_tuple, model, n_classes, mask = None):

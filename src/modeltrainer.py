@@ -12,8 +12,8 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.dataloader import WinITDataset
-from src.models import StateClassifier, ConvClassifier, TorchModel
-from src.utils import resolve_device
+from src.models.base_models import StateClassifier, ConvClassifier, TorchModel
+from src.utils.basic_utils import resolve_device
 
 
 @dataclasses.dataclass(frozen=True)
@@ -294,8 +294,9 @@ class ModelTrainer:
             if not use_all_times:
                 if labels.ndim > 1:
                     labels = labels[:, -1:]
-                else:
-                    labels = labels[:, None]
+                    # labels = labels[:, -1].squeeze(1) # squeeze arg should be the last dim, harcoding for now
+                # else:
+                #     labels = labels[:, None]
 
             loss = loss_criterion(output, labels)
             epoch_loss += loss.item()

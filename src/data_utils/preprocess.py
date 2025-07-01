@@ -13,11 +13,13 @@ class PAMchunk:
     '''
     Class to hold chunks of PAM data
     '''
-    def __init__(self, train_tensor, static, time, y, device = None):
-        self.X = train_tensor.to(device)
-        self.static = None if static is None else static.to(device)
-        self.time = time.to(device)
-        self.y = y.to(device)
+    def __init__(self, train_tensor, static, time, y, device=None):
+        # Keep them on CPU
+        self.X      = train_tensor        # shape: [features, n_samples, time]
+        self.static = static              # or None
+        self.time   = time                # shape: [n_samples, time]
+        self.y      = y                   # shape: [n_samples, …]
+        self.device = device
 
     def choose_random(self):
         n_samp = len(self.X)           
@@ -30,12 +32,22 @@ class PAMchunk:
             self.y[idx].unsqueeze(dim=0), \
             static_idx
 
-    def __getitem__(self, idx): 
-        static_idx = None if self.static is None else self.static[idx]
-        return self.X[:,idx,:].unsqueeze(dim=1), \
-            self.time[:,idx].unsqueeze(dim=-1), \
-            self.y[idx].unsqueeze(dim=0), \
-            static_idx
+    def __getitem__(self, idx):
+        # slice out the idx-th sample **on CPU** 
+        X_i      = self.X[:, idx, :].unsqueeze(1)   # → [features, 1, time]
+        time_i   = self.time[idx].unsqueeze(-1)     # → [time, 1]
+        y_i      = self.y[idx].unsqueeze(0)         # → [1, …]
+        static_i = None if self.static is None else self.static[idx]
+
+        # now move *only this sample* to GPU
+        if self.device is not None:
+            X_i      = X_i.to(self.device)
+            time_i   = time_i.to(self.device)
+            y_i      = y_i.to(self.device)
+            if static_i is not None:
+                static_i = static_i.to(self.device)
+
+        return X_i, time_i, y_i, static_i
 
 class RWDataset(torch.utils.data.Dataset):
     def __init__(self, X, times, y):
@@ -52,13 +64,30 @@ class RWDataset(torch.utils.data.Dataset):
         y = self.y[idx]
         return x, time, y 
 
+class PAMDataset(torch.utils.data.Dataset):
+    def __init__(self, X, times, y):
+        self.X = X # Shape: (T, N, d)
+        self.times = times # Shape: (T, N)
+        self.y = y # Shape: (N,)
+
+    def __len__(self):
+        return self.X.shape[0]
+    
+    def __getitem__(self, idx):
+        x = self.X[:,idx,:]
+        T = self.times[:,idx]
+        y = self.y[idx]
+        return x, T, y 
+
+
+
 
 def process_PAM(split_no = 1, device = None, base_path = base_path, gethalf = False):
     split_path = 'splits/PAMAP2_split_{}.npy'.format(split_no)
     idx_train, idx_val, idx_test = np.load(os.path.join(base_path, split_path), allow_pickle=True)
 
-    Pdict_list = np.load(base_path + '/processed_data/PTdict_list.npy', allow_pickle=True)
-    arr_outcomes = np.load(base_path + '/processed_data/arr_outcomes.npy', allow_pickle=True)
+    Pdict_list = np.load(base_path / 'processed_data' / 'PTdict_list.npy', allow_pickle=True)
+    arr_outcomes = np.load(base_path / 'processed_data' / 'arr_outcomes.npy', allow_pickle=True)
 
     Ptrain = Pdict_list[idx_train]
     Pval = Pdict_list[idx_val]
@@ -260,19 +289,6 @@ def process_MITECG(split_no = 1, device = None, hard_split = False, normalize = 
         Pval = (Pval - mu) / std
         Ptest = (Ptest - mu) / std
 
-        # Normalize each sample to between 0,1:
-        # samp_len = Ptrain.shape[0]
-        # batch_mins = Ptrain.min(dim=0)[0].unsqueeze(0).repeat(samp_len, 1, 1)
-        # batch_maxes = Ptrain.max(dim=0)[0].unsqueeze(0).repeat(samp_len, 1, 1)
-        # Ptrain = (Ptrain -  batch_mins) / batch_maxes 
-
-        # batch_mins = Pval.min(dim=0)[0].unsqueeze(0).repeat(samp_len, 1, 1)
-        # batch_maxes = Pval.max(dim=0)[0].unsqueeze(0).repeat(samp_len, 1, 1)
-        # Pval = (Pval -  batch_mins) / batch_maxes 
-
-        # batch_mins = Ptest.min(dim=0)[0].unsqueeze(0).repeat(samp_len, 1, 1)
-        # batch_maxes = Ptest.max(dim=0)[0].unsqueeze(0).repeat(samp_len, 1, 1)
-        # Ptest = (Ptest -  batch_mins) / batch_maxes 
 
     if div_time:
         time_train = time_train / 60.0
@@ -350,6 +366,76 @@ def process_MITECG(split_no = 1, device = None, hard_split = False, normalize = 
         return train_chunk, val_chunk, test_chunk, gt_exps
     else:
         return train_chunk, val_chunk, test_chunk
+    
+
+def process_MITECG_for_WINIT(
+                             device = None, 
+                             hard_split = False, 
+                             normalize = False, 
+                             exclude_pac_pvc = False, 
+                             balance_classes = False, 
+                             div_time = False, 
+                             need_binarize = False, 
+                             base_path = mitecg_base_path
+                             ):
+
+    # split_path = 'split={}.pt'.format(split_no)
+    # idx_train, idx_val, idx_test = torch.load(os.path.join(base_path, split_path))
+    if hard_split:
+        X = torch.load(os.path.join(base_path, 'all_data/X.pt'))
+        y = torch.load(os.path.join(base_path, 'all_data/y.pt')).squeeze()
+
+        # Make times on the fly:
+        times = torch.zeros(X.shape[0],X.shape[1])
+        for i in range(X.shape[1]):
+            times[:,i] = torch.arange(360)
+
+        saliency = torch.load(os.path.join(base_path, 'all_data/saliency.pt'))
+        
+    else:
+        X, times, y = torch.load(os.path.join(base_path, 'all_data.pt'))
+
+    P_all, time_all, y_all = X.float(), times, y.long()
+
+
+
+    if div_time:
+        time_all = time_all / 60.0
+
+    if exclude_pac_pvc:
+        all_mask_in = (y_all < 3)
+        P_all = P_all[:,all_mask_in,:]
+        time_all = time_all[:,all_mask_in]
+        y_all = y_all[all_mask_in]
+    
+    if need_binarize:
+        y_all = (y_all > 0).long()
+
+    if balance_classes:
+        diff_to_mask = (y_all == 0).sum() - (y_all == 1).sum()
+        all_zeros = (y_all == 0).nonzero(as_tuple=True)[0]
+        mask_out = all_zeros[:diff_to_mask]
+        to_mask_in = torch.tensor([not (i in mask_out) for i in torch.arange(P_all.shape[1])])
+        print('Num before', (y_all == 0).sum())
+        P_all = P_all[:,to_mask_in,:]
+        time_all = time_all[:,to_mask_in]
+        y_all = y_all[to_mask_in]
+        print('Num after 0', (y_all == 0).sum())
+        print('Num after 1', (y_all == 1).sum())
+
+    all_chunk = ECGchunk(P_all, None, time_all, y_all, device=device)
+
+    print('Num after 0', (y_all == 0).sum())
+    print('Num after 1', (y_all == 1).sum())    
+    
+    if hard_split: # TODO only if gt_exps is required
+        gt_exps = saliency.transpose(0,1).unsqueeze(-1)[:,:,:]
+        if exclude_pac_pvc:
+            gt_exps = gt_exps[:,all_mask_in,:]
+
+        return all_chunk, gt_exps
+    else:
+        return all_chunk
 
 class EpiDataset(torch.utils.data.Dataset):
     def __init__(self, X, times, y, augment_negative = None):

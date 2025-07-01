@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn.functional as F
 
-from txai.utils.functional import js_divergence, js_divergence_logsoftmax
+from src.utils.functional import js_divergence, js_divergence_logsoftmax
 
 class SimCLRLoss(torch.nn.Module):
     def __init__(self, temperature = 1.0):

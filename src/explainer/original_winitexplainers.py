@@ -17,7 +17,7 @@ from src.explainer.generator.generator import (
 from src.explainer.generator.jointgenerator import JointFeatureGenerator
 
 
-class WinITExplainer(BaseExplainer):
+class OGWinITExplainer(BaseExplainer):
     """
     The explainer for our method WinIT
     """
@@ -87,7 +87,7 @@ class WinITExplainer(BaseExplainer):
             self.data_distribution = None
         self.rng = np.random.default_rng(random_state)
 
-        self.log = logging.getLogger(WinITExplainer.__name__)
+        self.log = logging.getLogger(OGWinITExplainer.__name__)
         if len(kwargs):
             self.log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
 
@@ -125,8 +125,7 @@ class WinITExplainer(BaseExplainer):
 
             batch_size, num_features, num_timesteps = x.shape
             scores = []
-            iSab_array = np.zeros((num_timesteps, num_features, self.window_size, batch_size), dtype=float)
-            IS_array = np.zeros((num_timesteps, num_features, self.window_size, batch_size), dtype=float)
+
             for t in range(num_timesteps):
                 window_size = min(t, self.window_size)
 
@@ -137,7 +136,7 @@ class WinITExplainer(BaseExplainer):
                 # x = (num_sample, num_feature, n_timesteps)
                 p_y = self._model_predict(x[:, :, : t + 1])
 
-
+                iS_array = np.zeros((num_features, window_size, batch_size), dtype=float)
                 for n in range(window_size):
                     time_past = t - n
                     time_forward = n + 1
@@ -170,26 +169,22 @@ class WinITExplainer(BaseExplainer):
                         iSab = torch.mean(iSab_sample, dim=0).detach().cpu().numpy()
                         # For KL, the metric can be unbounded. We clip it for numerical stability.
                         iSab = np.clip(iSab, -1e6, 1e6)
-                        iSab_array[t, f, n, :] = iSab
+                        iS_array[f, n, :] = iSab
 
                 # Compute the I(S) array
-                b = iSab_array[t, :, 1:, :] - iSab_array[t, :, :-1, :]
-                IS_array[t, :, 1:, :] = b
+                b = iS_array[:, 1:, :] - iS_array[:, :-1, :]
+                iS_array[:, 1:, :] = b
 
-                score = IS_array[t, :, ::-1, :].transpose(2, 0, 1)  # (bs, nfeat, time)
+                score = iS_array[:, ::-1, :].transpose(2, 0, 1)  # reverse the axis, (bs, nfeat, time)
 
                 # Pad the scores when time forward is less than window size.
                 if score.shape[2] < self.window_size:
                     score = np.pad(score, ((0, 0), (0, 0), (self.window_size - score.shape[2], 0)))
                 scores.append(score)
-            self.log.info(f"Importance scoring of the batch done: Time elapsed: {(time() - tic):.4f}")
+            self.log.info(f"Batch done: Time elapsed: {(time() - tic):.4f}")
 
             scores = np.stack(scores).transpose((1, 2, 0, 3))  # (bs, fts, ts, window_size)
-            iSab_array = iSab_array.transpose((3, 1, 0, 2))  # (bs, fts, ts, window_size)
-            IS_array = IS_array.transpose((3, 1, 0, 2))  # (bs, fts, ts, window_size)
-
-            print('attribution done, scores.shape, iSab_array.shape,  IS_array.shape', scores.shape, iSab_array.shape,  IS_array.shape)
-            return scores, iSab_array, IS_array
+            return scores
 
     def _compute_metric(self, p_y_exp: torch.Tensor, p_y_hat: torch.Tensor) -> torch.Tensor:
         """

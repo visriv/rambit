@@ -144,6 +144,8 @@ def train_generator(args):
         D = process_Synth(split_no = args.split_no, device = device, base_path = Path(args.data_path) / 'SeqCombMV')
     elif Dname == 'mitecg_hard':
         D = process_MITECG(split_no = args.split_no, device = device, hard_split = True, need_binarize = True, exclude_pac_pvc = True, base_path = Path(args.data_path) / 'MITECG-Hard')
+    elif Dname == 'mitecg':
+        D = process_MITECG(split_no = args.split_no, device = device, hard_split = True, need_binarize = True, exclude_pac_pvc = True, base_path = Path(args.data_path) / 'MITECG')
     elif Dname == 'lowvardetect':
         D = process_Synth(split_no = args.split_no, device = device, base_path = Path(args.data_path) / 'LowVarDetect')
     elif Dname == 'epilepsy':
@@ -151,10 +153,10 @@ def train_generator(args):
     elif Dname == 'pam':
         trainEpi, val, test = process_PAM(split_no = args.split_no, device = device, base_path = '/n/data1/hms/dbmi/zitnik/lab/users/owq978/TimeSeriesCBM/datasets/PAMAP2data/', gethalf = True)
 
-    winit_path = Path(args.models_path) / f"winit_split={args.split_no}/"
+    winit_path = Path(args.models_path) /  f"winit_split={args.split_no}/"
 
 
-    if Dname == "mitecg_hard":
+    if ("mitecg" in Dname):
         # make ecg data the same format as everything else
         train_loader, val, test, _ = D
         train_loader = [(train_loader.X[:, i], train_loader.time[:, i], train_loader.y[i]) for i in range(train_loader.X.shape[1])]
@@ -202,7 +204,7 @@ def train_generator(args):
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument('--dataset', type = str)
-    parser.add_argument('--models_path', type = str, help = 'path to store models')
+    parser.add_argument('--models_path', default="./ckpt/mitecg/", type = str, help = 'path to store models')
     parser.add_argument('--data_path', default="./data", type = str, help = 'path to datasets root')
     parser.add_argument('--epochs', type=int, default=1000)
     args = parser.parse_args()

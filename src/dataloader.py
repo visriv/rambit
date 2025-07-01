@@ -4,13 +4,16 @@ import abc
 import os
 import pathlib
 import pickle
-from typing import List
+from typing import List, Optional, Tuple
+
 
 import numpy as np
 import torch
 from sklearn.model_selection import KFold
 from torch.utils.data import TensorDataset, DataLoader, Subset
 from pathlib import Path
+from src.data_utils  import process_MITECG, process_MITECG_for_WINIT, process_PAM, PAMDataset
+from sklearn.model_selection import train_test_split
 
 
 class WinITDataset(abc.ABC):
@@ -78,6 +81,8 @@ class WinITDataset(abc.ABC):
         train_label: np.ndarray,
         test_data: np.ndarray,
         test_label: np.ndarray,
+        valid_data: Optional[np.ndarray] = None,
+        valid_label: Optional[np.ndarray] = None,
     ):
         """
         Get the train loader, valid loader and the test loaders. The "train_data" and "train_label"
@@ -93,21 +98,40 @@ class WinITDataset(abc.ABC):
             test_label:
                 The test label
         """
+        # print(train_data)
+        # print(len(train_data))
+        # print(train_label)
+        # print(len(train_label))
         feature_size = train_data.shape[1]
         train_tensor_dataset = TensorDataset(torch.Tensor(train_data), torch.Tensor(train_label))
+        valid_tensor_dataset = TensorDataset(torch.Tensor(valid_data), torch.Tensor(valid_label))
         test_tensor_dataset = TensorDataset(torch.Tensor(test_data), torch.Tensor(test_label))
-        kf = KFold(n_splits=5)
+
+        testbs = self.testbs if self.testbs is not None else len(test_data)
+
         train_loaders = []
         valid_loaders = []
-        for train_indices, valid_indices in kf.split(train_data):
-            train_subset = Subset(train_tensor_dataset, train_indices)
-            valid_subset = Subset(train_tensor_dataset, valid_indices)
-            train_loaders.append(DataLoader(train_subset, batch_size=self.batch_size))
-            valid_loaders.append(DataLoader(valid_subset, batch_size=self.batch_size))
-        testbs = self.testbs if self.testbs is not None else len(test_data)
-        test_loader = DataLoader(test_tensor_dataset, batch_size=testbs)
-        self.train_loaders = train_loaders
-        self.valid_loaders = valid_loaders
+        if valid_data is None:
+            kf = KFold(n_splits=5)
+
+            for train_indices, valid_indices in kf.split(train_data):
+                train_subset = Subset(train_tensor_dataset, train_indices)
+                valid_subset = Subset(train_tensor_dataset, valid_indices)
+                train_loaders.append(DataLoader(train_subset, batch_size=self.batch_size, pin_memory=True))
+                valid_loaders.append(DataLoader(valid_subset, batch_size=self.batch_size, pin_memory=True))
+            
+            self.train_loaders = train_loaders
+            self.valid_loaders = valid_loaders
+
+        else:
+            train_loader = DataLoader(train_tensor_dataset, batch_size=testbs, pin_memory=True)
+            valid_loader = DataLoader(valid_tensor_dataset, batch_size=testbs, pin_memory=True)
+            train_loaders.append(train_loader)
+            valid_loaders.append(valid_loader)
+            self.train_loaders = train_loaders
+            self.valid_loaders = valid_loaders
+        
+        test_loader = DataLoader(test_tensor_dataset, batch_size=testbs, pin_memory=True)
         self.test_loader = test_loader
         self.feature_size = feature_size
 
@@ -250,6 +274,204 @@ class Mimic(WinITDataset):
     @property
     def num_classes(self) -> int:
         return 1
+    
+
+class MITECG(WinITDataset):
+    """
+    The MITECG dataset
+    Num Features = x, Num Times = 360, Num Classes = 1, Samples: ~90k
+    """
+
+    def __init__(
+        self,
+        data_path: pathlib.Path = pathlib.Path("./data/"),
+        batch_size: int = 100,
+        testbs: int | None = None,
+        deterministic: bool = False,
+        file_name: str = "patient_vital_preprocessed.pkl",
+        cv_to_use: List[int] | int | None = None,
+        seed: int | None = 1234,
+        # split_no: ,
+        device: str = 'cuda'
+    ):
+        super().__init__(data_path, batch_size, testbs, deterministic, cv_to_use, seed)
+        self.file_name = file_name
+        # self.split_no = split_no
+        self.device = device
+        self.data_path = data_path
+
+
+    def load_data(self, train_ratio=0.8):
+        D = process_MITECG_for_WINIT(
+                           device = self.device, 
+                           hard_split = True, 
+                           need_binarize = True, 
+                           exclude_pac_pvc = True, 
+                           base_path = Path(self.data_path) / 'MITECG')
+
+
+        all_chunk, _ = D
+
+        # all_chunk.X shape: (features, n_samples, time_steps)? 
+        # but your usage all_chunk.X[:, i] → shape (features, time_steps)
+        n_time_steps, n_samples, n_features = all_chunk.X.shape
+
+        # 1) Build lists of per‐sample tensors & labels
+        X_list = []
+        y_list = []
+        for i in range(n_samples):
+            # X[:, i, :] has shape (n_features, n_time_steps)
+            x_i = all_chunk.X[:, i, :].to(torch.float32)  # ensure float32
+            y_i = all_chunk.y[i].to(torch.int64)           # ensure int64
+            X_list.append(x_i)                             # Tensor (features, time)
+            y_list.append(y_i)                             # Tensor scalar                # → scalar Tensor
+
+        # 2) Stack into big tensors
+        X_tensor = torch.stack(X_list, dim=0).permute(0,2,1)  # shape (n_samples, n_features, n_time_steps)
+        y_tensor = torch.stack(y_list, dim=0)   # shape (n_samples,)
+        y_tensor = y_tensor.unsqueeze(1).repeat(1, n_time_steps)        # now (n_samples, n_time_steps)
+
+        # 3) Train/test split
+        y_flat = y_tensor[:, 0].cpu().numpy() if isinstance(y_tensor, torch.Tensor) else y_tensor[:,0]
+
+        # Perform stratified split
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_tensor,             # features
+            y_tensor,             # full (n, T) label array
+            train_size=train_ratio,
+            stratify=y_flat,      # ensures both classes appear in both splits
+            random_state=42,
+        )
+
+        # Now X_train, y_train are torch.Tensor (on original device)
+        # To count classes, move labels to CPU+numpy first:
+        y_train_np = y_train[:, 0].detach().cpu().numpy()
+        y_test_np  = y_test[:,  0].detach().cpu().numpy()
+
+        train_counts = np.unique(y_train_np, return_counts=True)
+        test_counts  = np.unique(y_test_np,  return_counts=True)
+
+        print("Train class counts:", dict(zip(train_counts[0], train_counts[1])))
+        print("Test  class counts:", dict(zip(test_counts[0],  test_counts[1])))
+
+
+
+
+        self._get_loaders(X_train, y_train, X_test, y_test)
+
+    @staticmethod
+    def normalize(train_data, test_data, feature_size):
+        d = np.stack([x.T for x in train_data], axis=0)
+        num_timesteps = train_data.shape[-1]
+        feature_means = np.tile(np.mean(d.reshape(-1, feature_size), axis=0), (num_timesteps, 1)).T
+        feature_std = np.tile(np.std(d.reshape(-1, feature_size), axis=0), (num_timesteps, 1)).T
+        np.seterr(divide="ignore", invalid="ignore")
+        train_data = np.array(
+            [
+                np.where(feature_std == 0, (x - feature_means), (x - feature_means) / feature_std)
+                for x in train_data
+            ]
+        )
+        test_data = np.array(
+            [
+                np.where(feature_std == 0, (x - feature_means), (x - feature_means) / feature_std)
+                for x in test_data
+            ]
+        )
+        return train_data, test_data
+
+    def get_name(self) -> str:
+        return "mitecg"
+
+    @property
+    def data_type(self) -> str:
+        return "mitecg"
+
+    @property
+    def num_classes(self) -> int:
+        return 1
+    
+
+
+class PAM(WinITDataset):
+    """
+    The PAM dataset
+    Num Features = 17, Num Times = 600, Num Classes = 8, Samples: 5333
+    """
+
+    def __init__(
+        self,
+        data_path: pathlib.Path = pathlib.Path("./data/"),
+        batch_size: int = 100,
+        testbs: int | None = None,
+        deterministic: bool = False,
+        file_name: str = "patient_vital_preprocessed.pkl",
+        cv_to_use: List[int] | int | None = None,
+        seed: int | None = 1234,
+        # split_no: ,
+        device: str = 'cuda'
+    ):
+        super().__init__(data_path, batch_size, testbs, deterministic, cv_to_use, seed)
+        self.file_name = file_name
+        # self.split_no = split_no
+        self.device = device
+        self.data_path = data_path
+        self.split_cv = cv_to_use
+
+
+    def load_data(self, train_ratio=0.8):
+        train_chunk, val_chunk, test_chunk = process_PAM(
+            split_no = self.split_cv[0]+1,
+            device = self.device, 
+            base_path = Path(self.data_path) / 'PAM',
+            gethalf = False)
+
+
+        # train_dataset = PAMDataset(train_chunk.X, train_chunk.time, train_chunk.y)
+        # train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = 32, shuffle = True)
+
+
+        X_train = train_chunk.X.permute(1,2,0)
+        X_test = test_chunk.X.permute(1,2,0)
+        X_valid = val_chunk.X.permute(1,2,0)
+
+        y_train = train_chunk.y
+        y_test = test_chunk.y
+        y_valid = val_chunk.y
+
+        self._get_loaders(X_train, y_train, X_test, y_test,  X_valid, y_valid)
+
+    @staticmethod
+    def normalize(train_data, test_data, feature_size):
+        d = np.stack([x.T for x in train_data], axis=0)
+        num_timesteps = train_data.shape[-1]
+        feature_means = np.tile(np.mean(d.reshape(-1, feature_size), axis=0), (num_timesteps, 1)).T
+        feature_std = np.tile(np.std(d.reshape(-1, feature_size), axis=0), (num_timesteps, 1)).T
+        np.seterr(divide="ignore", invalid="ignore")
+        train_data = np.array(
+            [
+                np.where(feature_std == 0, (x - feature_means), (x - feature_means) / feature_std)
+                for x in train_data
+            ]
+        )
+        test_data = np.array(
+            [
+                np.where(feature_std == 0, (x - feature_means), (x - feature_means) / feature_std)
+                for x in test_data
+            ]
+        )
+        return train_data, test_data
+
+    def get_name(self) -> str:
+        return "pam"
+
+    @property
+    def data_type(self) -> str:
+        return "pam"
+
+    @property
+    def num_classes(self) -> int:
+        return 8
 
 
 class SimulatedData(WinITDataset, abc.ABC):
@@ -295,14 +517,14 @@ class SimulatedData(WinITDataset, abc.ABC):
         self.file_name_prefix = file_name_prefix
         self.ground_truth_prefix = ground_truth_prefix
 
-    def load_data(self) -> None:
-        with (self.data_path / f"{self.file_name_prefix}x_train.pkl").open("rb") as f:
+    def load_data(self, train_ratio=0.8) -> None:
+        with (self.data_path / f"{self.get_name()}_data" / f"{self.file_name_prefix}x_train.pkl").open("rb") as f:
             train_data = pickle.load(f)
-        with (self.data_path / f"{self.file_name_prefix}y_train.pkl").open("rb") as f:
+        with (self.data_path / f"{self.get_name()}_data" /f"{self.file_name_prefix}y_train.pkl").open("rb") as f:
             train_label = pickle.load(f)
-        with (self.data_path / f"{self.file_name_prefix}x_test.pkl").open("rb") as f:
+        with (self.data_path / f"{self.get_name()}_data" /f"{self.file_name_prefix}x_test.pkl").open("rb") as f:
             test_data = pickle.load(f)
-        with (self.data_path / f"{self.file_name_prefix}y_test.pkl").open("rb") as f:
+        with (self.data_path / f"{self.get_name()}_data" /f"{self.file_name_prefix}y_test.pkl").open("rb") as f:
             test_label = pickle.load(f)
 
         rng = np.random.default_rng(seed=self.seed)
@@ -317,7 +539,7 @@ class SimulatedData(WinITDataset, abc.ABC):
         return 1
 
     def load_ground_truth_importance(self) -> np.ndarray:
-        with open(os.path.join(self.data_path, self.ground_truth_prefix + "_test.pkl"), "rb") as f:
+        with open(os.path.join(self.data_path, f"{self.get_name()}_data", self.ground_truth_prefix + "_test.pkl"), "rb") as f:
             gt = pickle.load(f)
         return gt
 

@@ -5,7 +5,7 @@ import dataclasses
 import logging
 import pathlib
 from time import time
-
+from tqdm import tqdm
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -494,7 +494,7 @@ class FeatureGenerator(BaseFeatureGenerator):
 
             best_loss = 1000000
             best_epoch = -1
-            for epoch in range(num_epochs + 1):
+            for epoch in tqdm(range(num_epochs + 1), desc="Epoch"):
                 generator_model.run_one_epoch(train_loader, True, optimizer)
                 train_loss = generator_model.run_one_epoch(train_loader, False, None)
                 valid_loss = generator_model.run_one_epoch(valid_loader, False, None)

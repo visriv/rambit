@@ -8,7 +8,7 @@ import torch
 from captum.attr import IntegratedGradients, DeepLift, GradientShap
 
 from src.explainer.generator.generator import GeneratorTrainingResults
-from src.base_models import TorchModel
+from src.models.base_models import TorchModel
 from src.utils.basic_utils import resolve_device
 
 

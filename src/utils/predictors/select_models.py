@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-from txai.utils.predictors.loss_cl import LabelConsistencyLoss
+from src.utils.predictors.loss_cl import LabelConsistencyLoss
 
 # Old selection criteria, here for reference: -----------------
 def lower_bound_performance(lower_bound):

@@ -7,9 +7,9 @@ from sklearn.metrics import roc_auc_score, f1_score, mean_absolute_error
 
 sys.path.append(os.path.dirname(__file__))
 
-from txai.utils.predictors.loss import Poly1CrossEntropyLoss
-from txai.models.run_model_utils import batch_forwards_TransformerMVTS
-from txai.models.encoders.simple import CNN, LSTM
+from src.utils.predictors.loss import Poly1CrossEntropyLoss
+from src.models.run_model_utils import batch_forwards_TransformerMVTS
+from src.models.encoders.simple import CNN, LSTM
 
 default_scheduler_args = {
     'mode': 'max', 

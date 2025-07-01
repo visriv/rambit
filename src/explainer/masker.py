@@ -4,7 +4,7 @@ from typing import Dict
 
 import numpy as np
 
-from src.utils import aggregate_scores
+from src.utils.basic_utils import aggregate_scores
 
 
 class Masker:
