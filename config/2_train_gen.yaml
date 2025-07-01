@@ -1,16 +1,17 @@
 # config/main.yaml
 
 # ─── Dataset & Seeds ──────────────────────────────────────────────────────────
-data: spike                     # choices: [spike, state, switch, mimic, data_l2x]
+data: mitecg1                     # choices: [spike, state, switch, mitecg, mimic, data_l2x]
 delay: 0                        # choices: [0,1,2,3,4]
 explainer:                      # one or more of [fit, winit, ig, deeplift, fo, afo, gradientshap, dynamask]
-  - fit
+  - winit
 cv:                             # cross‐validation folds to run
   - 0
-  - 1
-  - 2
-  - 3
-  - 4
+  # - 1
+  # - 2
+  # - 3
+  # - 4
+train_ratio: 0.8
 testbs: 128                     # test batch size
 dataseed: 1234                  # random state for data split
 datapath: null                  # path to raw data (null = use default)
@@ -43,7 +44,7 @@ lr: null                        # learning rate (null = use default inside code)
 # ─── Generator Settings ───────────────────────────────────────────────────────
 joint: false                    # if true, use joint generator
 conditional: false              # if true, use conditional generator
-epoch_gen: 200                  # # of epochs for generator training
+epoch_gen: 20                  # # of epochs for generator training
 
 # ─── Dynamask‐Specific Hyperparams ────────────────────────────────────────────
 area: null                      # float list; e.g. [0.1,0.2] or null

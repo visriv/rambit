@@ -1,16 +1,17 @@
 # config/main.yaml
 
 # ─── Dataset & Seeds ──────────────────────────────────────────────────────────
-data: spike                     # choices: [spike, state, switch, mimic, data_l2x]
+data: pam                     # choices: [spike, state, switch, pam,  mitecg, mimic, data_l2x]
 delay: 0                        # choices: [0,1,2,3,4]
 explainer:                      # one or more of [fit, winit, ig, deeplift, fo, afo, gradientshap, dynamask]
-  - fit
+  - winit
 cv:                             # cross‐validation folds to run
   - 0
-  - 1
-  - 2
-  - 3
-  - 4
+  # - 1
+  # - 2
+  # - 3
+  # - 4
+train_ratio: 0.80               # keep it around 0.97 only when training is not required - only for testing
 testbs: 128                     # test batch size
 dataseed: 1234                  # random state for data split
 datapath: null                  # path to raw data (null = use default)
@@ -34,7 +35,7 @@ nondeterministic: false         # if true, PyTorch is non‐deterministic
 
 # ─── Base Model / Training Hyperparams ────────────────────────────────────────
 hiddensize: 200                 # hidden size of base model
-batchsize: 100                  # batch size of base model
+batchsize: 32                  # batch size of base model
 dropout: 0.5                    # dropout rate
 numlayers: 1                    # number of RNN layers (choices: [1,2,3])
 modeltype: "gru"                # architecture (choices: [conv, lstm, gru])
