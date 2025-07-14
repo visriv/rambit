@@ -148,6 +148,7 @@ class ModelTrainer:
 
         best_auc = 0
         self.model.to(self.device)
+        print('Running for total epochs:', num_epochs)
         for epoch in range(num_epochs):
             train_results = self._run_one_epoch(
                 train_loader, run_train=True, optimizer=optimizer, use_all_times=use_all_times

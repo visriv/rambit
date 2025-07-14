@@ -3,11 +3,12 @@ from __future__ import annotations
 import logging
 import pathlib
 from time import time
+import time as time_og
 from tqdm import tqdm
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-
+from typing import List, Optional
 from src.explainer.explainers import BaseExplainer
 from src.explainer.generator.generator import (
     FeatureGenerator,
@@ -88,7 +89,7 @@ class BiWinITExplainer(BaseExplainer):
         else:
             self.data_distribution = None
         self.rng = np.random.default_rng(random_state)
-
+        self.k_upper_triangular_mask = self._precompute_k()
         self.log = logging.getLogger(BiWinITExplainer.__name__)
         if len(kwargs):
             self.log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
@@ -105,6 +106,22 @@ class BiWinITExplainer(BaseExplainer):
             return prob_distribution
         return p
 
+    def _precompute_k(self):
+        # k[n, t] = how far down from d_start we go at offset n, time t
+        W = self.window_size
+        T = self.max_timesteps  # or pass in when you know it
+        k = np.zeros((W, T), dtype=int)
+        for n in range(1, W+1):
+            span = n - 1
+            for t in range(T):
+                t_s = t - span
+                if span > 0 and t_s >= 0:
+                    α = (t - t_s) / span
+                    k[n-1, t] = int(round((α**self.slope)*(self.height - 1)))
+                else:
+                    k[n-1, t] = 0
+        return k
+    
     def attribute(self, x):
         """
         Compute the WinIT attribution.
@@ -130,7 +147,7 @@ class BiWinITExplainer(BaseExplainer):
             i_ab_S1_array = np.zeros((num_timesteps, num_features, self.window_size, batch_size), dtype=float)
             i_ab_S2_array = np.zeros((num_timesteps, num_features, self.window_size, batch_size), dtype=float)
             IS_array = np.zeros((num_timesteps, num_features, self.window_size, batch_size), dtype=float)
-            for t in tqdm(range(num_timesteps), desc="Time-step loop", total=num_timesteps):
+            for t in tqdm(range(num_timesteps), desc="BiWinIT Time-step loop", total=num_timesteps):
 
                 window_size = min(t, self.window_size)
 
@@ -140,40 +157,54 @@ class BiWinITExplainer(BaseExplainer):
 
                 # x = (num_sample, num_feature, n_timesteps)
                 p_y = self._model_predict(x[:, :, : t + 1])
+                        # Compute P = p(y_t | X_{1:t})
+                p_y_exp = (
+                    p_y.unsqueeze(0)
+                    .repeat(self.num_samples, 1, 1)
+                    .reshape(self.num_samples * batch_size, p_y.shape[-1])
+                )
 
+                # Compute and cache a CF matrix to replace in the mask later
+                ## Sample counterfactuals for every (f, s, b, t)
+                CF = torch.empty((self.num_samples, batch_size, self.num_features, t+1), device=self.device, dtype=x.dtype)
+                # N_hist = self.data_distribution.shape[0] * self.data_distribution.shape[2]  # N_samples × T
+
+                for f in range(self.num_features):
+                    # flatten historical values for feature f
+                    vals = self.data_distribution[:, f, :].reshape(-1)  # shape (N_hist,)
+                    # draw S×B×T values
+                    draws = self.rng.choice(vals, size=(self.num_samples, batch_size, t+1))
+                    CF[:, :, f, :] = torch.from_numpy(draws).to(self.device)
+
+                ## CF generation complete
 
                 for n in range(window_size):
                     time_past = t - n
                     delta_time = n + 1
-                    # counterfactuals = self._generate_counterfactuals(
-                    #     time_forward, x[:, :, :time_past], x[:, :, time_past : t + 1]
-                    # )
+
                     # counterfactual shape = (num_feat, num_samples, batch_size, time_forward)
                     for f in range(num_features):
                         ## Set S1 ##
                         #out shape should be self.num_features, self.num_samples, batch_size, t+1
-                        x_rep_in = self.replace_cfs(x[:, :, : t + 1], 
+                        x_rep_in_1, x_rep_in_2 = self.replace_cfs(x[:, :, : t + 1], 
                                                t_start = t-n-1,
                                                t_end = t,
-                                               mask_strategy = self.mask_strategy[0],
+                                               CF = CF,
+                                               mask_strategy = self.mask_strategy,
                                                d_start = f,
                                                height = self.height,
                                                slope = 0.01,
                                                num_samples = self.num_samples,
                                                device = self.device,
-                                               init_include = True)  # S1 cf
+                                            #    init_include = True
+                                               )  # S1 cf
 
                         # Compute Q = p(y_t | tilde(X)^S_{t-n:t})
                         p_y_hat = self._model_predict(
-                            x_rep_in.reshape(self.num_samples * batch_size, num_features, t + 1)
+                            x_rep_in_1.reshape(self.num_samples * batch_size, num_features, t + 1)
                         )
 
-                        # Compute P = p(y_t | X_{1:t})
-                        p_y_exp = (
-                            p_y.unsqueeze(0)
-                            .repeat(self.num_samples, 1, 1)
-                            .reshape(self.num_samples * batch_size, p_y.shape[-1])
-                        )
+
                         i_ab_S1_sample = self._compute_metric(p_y_exp, p_y_hat).reshape(
                             self.num_samples, batch_size
                         )
@@ -183,18 +214,20 @@ class BiWinITExplainer(BaseExplainer):
 
                         ## Set S2 ##
                         # Now calculate for S2
-                        x_rep_in = self.replace_cfs(x[:, :, : t + 1], 
-                                                t_start = t-n-1,
-                                                t_end = t,
-                                                mask_strategy = self.mask_strategy[1],
-                                                d_start = f,
-                                                height = self.height,
-                                                slope = 0.01,
-                                                num_samples = self.num_samples,
-                                                device = self.device,
-                                                init_include = False)  # S2 cf
+                        # x_rep_in = self.replace_cfs(x[:, :, : t + 1], 
+                        #                         t_start = t-n-1,
+                        #                         t_end = t,
+                        #                         CF = CF,
+                        #                         mask_strategy = self.mask_strategy[0][1],
+                        #                         d_start = f,
+                        #                         height = self.height,
+                        #                         slope = 0.01,
+                        #                         num_samples = self.num_samples,
+                        #                         device = self.device,
+                        #                         # init_include = False
+                        #                         )  # S2 cf
                         p_y_hat = self._model_predict(
-                            x_rep_in.reshape(self.num_samples * batch_size, num_features, t + 1)
+                            x_rep_in_2.reshape(self.num_samples * batch_size, num_features, t + 1)
                         )
                         i_ab_S2_sample = self._compute_metric(p_y_exp, p_y_hat).reshape(
                             self.num_samples, batch_size
@@ -239,12 +272,14 @@ class BiWinITExplainer(BaseExplainer):
         X_in: torch.Tensor,
         t_start: int,
         t_end:   int,
+        CF: torch.Tensor,
+        mask_strategy: str,
         d_start: int,
         height:  int,
         slope:   float,
         num_samples: int,
         device:  torch.device,
-        init_include: bool
+        # init_include: bool
     ) -> torch.Tensor:
         """
         X_in:  (B, F, T)
@@ -255,32 +290,80 @@ class BiWinITExplainer(BaseExplainer):
         B, F, T = X_in.shape
 
         # 1) build single‐sample upper‐right mask M[d,t] in {0,1}
-        M = self.build_upper_right_mask(F, T, t_start, t_end, d_start, self.height, slope, init_include)  # F x T
-        mask = torch.from_numpy(M).to(device).bool()                               # F x T
-        mask = mask.unsqueeze(0).expand(B, F, T)                                   # B x F x T
+
+        M1, M2 = self.get_mask(mask_strategy=mask_strategy, D=F, T=T, t_start=t_start, t_end=t_end, d_start=d_start, height=height)
+        mask1 = torch.from_numpy(M1).to(device).bool().unsqueeze(0).expand(B, F, T)     # B x F x T                                       # F x T
+        mask2 = torch.from_numpy(M2).to(device).bool().unsqueeze(0).expand(B, F, T)     # B x F x T                                       # F x T
+
 
         # 2) prepare expanded X and mask for batch of S samples
         X_exp = X_in.unsqueeze(0).expand(num_samples, B, F, T)  # (S, B, F, T)
-        mask_exp = mask.unsqueeze(0).expand(num_samples, B, F, T)
+        mask1_exp = mask1.unsqueeze(0).expand(num_samples, B, F, T)
+        mask2_exp = mask2.unsqueeze(0).expand(num_samples, B, F, T)
 
-        # 3) Sample counterfactuals for every (f, s, b, t)
-        CF = torch.empty((num_samples, B, F, T), device=device, dtype=X_in.dtype)
-        # N_hist = self.data_distribution.shape[0] * self.data_distribution.shape[2]  # N_samples × T
 
-        for f in range(F):
-            # flatten historical values for feature f
-            vals = self.data_distribution[:, f, :].reshape(-1)  # shape (N_hist,)
-            # draw S×B×T values
-            draws = self.rng.choice(vals, size=(num_samples, B, T))
-            CF[:, :, f, :] = torch.from_numpy(draws).to(device)
 
         # 4) apply mask: wherever mask==1, use CF, else keep X
-        X_out = torch.where(mask_exp, CF, X_exp).permute(2,0,1,3)  # (S, B, F, T)
+        X1_out = torch.where(mask1_exp, CF, X_exp).permute(2,0,1,3)  # (S, B, F, T)
+        X2_out = torch.where(mask2_exp, CF, X_exp).permute(2,0,1,3)  # (S, B, F, T)
 
-        return X_out
+        return X1_out, X2_out
 
 
-    # def build_rectangular_mask():
+
+    def get_mask(self, mask_strategy, D, T, t_start, t_end, d_start, height):
+        mask_strategy = mask_strategy[0]
+        if (mask_strategy == "upper_triangular"):
+            M1, M2 = self.fast_upper_right_mask(D, T, t_start, t_end, d_start, height)
+        elif (mask_strategy == "upper_triangular_wo_head"):
+            M1, M2 = self.build_upper_right_mask(D, T, t_start, t_end, d_start, height)
+        elif (mask_strategy == "box"):
+            M1, M2 = self.build_rectangular_mask(D, T, t_start, t_end, d_start, height)
+        elif (mask_strategy == "box_wo_head"):
+            M1, M2 = self.build_rectangular_mask(D, T, t_start, t_end, d_start, height)
+        return M1, M2
+        
+    def build_rectangular_mask(
+        self,
+        D: int,
+        T: int,
+        t_start: int,
+        t_end:   int,
+        d_start: int,
+        height:  int = 1
+    ): 
+        start = time_og.perf_counter()       # ← start timer
+
+        M = np.zeros((D, T), dtype=int)
+        row = np.zeros(D, dtype=np.uint8)
+        col = np.zeros(T, dtype=np.uint8)
+        
+        width = t_start - t_end
+
+        if (t_end >= T):
+            t_end = T
+        
+        d_end = d_start + height
+        if d_end > D:
+            d_end = D
+
+        # M[d_start:d_end, t_start:t_end] = 1
+        # mark the intervals
+        row[d_start:d_end] = 1
+        col[t_start:t_end] = 1
+
+        # 2) Outer product: only the rectangle becomes 1, the rest stays 0
+        M = row[:, None] * col[None, :]
+
+        M1 = M.copy()
+        M1[d_start, t_start] = 0
+
+
+        elapsed = time_og.perf_counter() - start   # ← end timer
+        # print(f"[build_rectangular_mask] D={D},T={T},ts={t_start},te={t_end} took {elapsed:.6f}s")
+
+        return M, M1
+
 
     def build_upper_right_mask(
         self,
@@ -290,8 +373,7 @@ class BiWinITExplainer(BaseExplainer):
         t_end:   int,
         d_start: int,
         height:  int = 1,
-        slope:   float = 1.0,
-        init_include: bool = True
+        slope:   float = 1.0
     ) -> np.ndarray:
         """
         Build a mask M of shape (D, T) as follows:
@@ -316,13 +398,13 @@ class BiWinITExplainer(BaseExplainer):
             # just fill upper triangle from the single row
             for t in range(t_start, t_end+1):
                 M[d_start:d_start+1, t:t_end+1] = 1
-            if init_include:
-                M[d_start,      t_start] = 1
-            else:
-                M[d_start,      t_start] = 0
+            
+            M[d_start,      t_start] = 1
+            M1 = M.copy()
+            M1[d_start,      t_start] = 0
 
             # self.print_mask(M)
-            return M
+            return M, M1
 
         # Loop over each time in the interval
         for t in range(t_start, t_end+1):
@@ -335,16 +417,85 @@ class BiWinITExplainer(BaseExplainer):
 
         # ensure endpoints
 
-        if init_include:
-            M[d_start,      t_start] = 1
-        else:
-            M[d_start,      t_start] = 0
+        M[d_start,      t_start] = 1
+        M1 = M.copy()
+        M1[d_start,      t_start] = 0
 
-            
         M[d_start+height-1, t_end]   = 1
 
         # self.print_mask(M)
-        return M
+        return M, M1
+
+
+    def fast_upper_right_mask(
+        self,
+        D: int,
+        T: int,
+        t_start: int,
+        t_end:   int,
+        d_start: int,
+        height:  int = 1
+        # slope:   float = 1.0
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Fast O(D·T) construction of the “upper-right” mask:
+
+        Returns (M, M_minus) where each is a (D×T) array of 0/1,
+        and M_minus is identical to M except M_minus[d_start, t_start] = 0.
+        """
+        # Clamp height so we don’t overflow
+        height = min(height, D - d_start)
+        span = t_end - t_start
+        slope = 0.01
+        # Trivial case: single row or no span
+        if height <= 1 or span <= 0:
+            M = np.zeros((D, T), dtype=int)
+            M[d_start, t_start:t_end+1] = 1
+            M[d_start, t_start] = 1
+            M_minus = M.copy()
+            M_minus[d_start, t_start] = 0
+            return M, M_minus
+
+        # 1) Build difference array of size (D+1)×(T+1)
+        Diff = np.zeros((D+1, T+1), dtype=int)
+
+        # 2) For each pivot column, mark the rectangle corners in O(1)
+        for t in range(t_start, t_end + 1):
+            alpha   = (t - t_start) / span
+            alpha_s = alpha ** slope
+            r_t     = d_start + int(round(alpha_s * (height - 1)))
+
+            # increment the [d_start..r_t] x [t..t_end] block
+            Diff[d_start,    t       ] += 1
+            Diff[r_t + 1,    t       ] -= 1
+            Diff[d_start,    t_end+1 ] -= 1
+            Diff[r_t + 1,    t_end+1 ] += 1
+
+        # 3) Run 2D prefix-sum over Diff to recover counts in [0..D-1,0..T-1]
+        for i in range(D):
+            for j in range(T):
+                if i > 0:
+                    Diff[i, j] += Diff[i-1, j]
+                if j > 0:
+                    Diff[i, j] += Diff[i, j-1]
+                if i > 0 and j > 0:
+                    Diff[i, j] -= Diff[i-1, j-1]
+
+        # 4) Threshold to binary mask
+        M = (Diff[:D, :T] > 0).astype(int)
+
+        # 5) Enforce the exact endpoints
+        M[d_start,        t_start] = 1
+        M[d_start+height-1, t_end  ] = 1
+
+        # 6) Build M_minus by zeroing the start cell
+        M_minus = M.copy()
+        M_minus[d_start, t_start] = 0
+        
+        self.print_mask(M)
+        self.print_mask(M_minus)
+
+        return M, M_minus
 
     def print_mask(self, M: np.ndarray):
         """Print the mask matrix of 0/1."""

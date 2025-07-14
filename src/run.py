@@ -13,7 +13,7 @@ import torch.cuda
 from omegaconf import OmegaConf
 from argparse import Namespace 
 import os
-from src.dataloader import Mimic, MITECG, PAM, SimulatedSwitch, SimulatedState, SimulatedSpike, \
+from src.dataloader import Mimic, Boiler, MITECG, PAM, SimulatedSwitch, SimulatedState, SimulatedSpike, \
     WinITDataset, SimulatedData, SimulatedL2X
 from src.explainer.explainers import BaseExplainer, DeepLiftExplainer, IGExplainer, \
     GradientShapExplainer
@@ -21,7 +21,7 @@ from src.explainer.masker import Masker
 from src.explanationrunner import ExplanationRunner
 from src.utils.basic_utils import append_df_to_csv
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1,2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 class Params:
     def __init__(self, argdict: Dict[str, Any]):
         self.argdict = argdict
@@ -96,6 +96,10 @@ class Params:
             kwargs["testbs"] = 1000 if testbs == -1 else testbs
             return Mimic(**kwargs)
         
+        if (data == "boiler"):
+            kwargs["testbs"] = 1000 if testbs == -1 else testbs
+            return Boiler( **kwargs)
+        
         if (data == "mitecg") or (data == "mitecg1"):
             kwargs["testbs"] = 1000 if testbs == -1 else testbs
             return MITECG( **kwargs)
@@ -146,6 +150,7 @@ class Params:
                     if explainer == "biwinit":
                         height = self.argdict["height"]
                         mask_strategy = self.argdict["mask_strategy"]
+                        explainer_dict_window["height"] = height
                         explainer_dict_window["mask_strategy"] = mask_strategy
                     if nsamples != -1:
                         explainer_dict_window["n_samples"] = nsamples
@@ -228,7 +233,7 @@ class Params:
             elif model_type == "LSTM":
                 num_epochs = 30
         else:
-            num_epochs = 50
+            num_epochs = self.argdict['epochs_classifier']
         self._model_train_args = {"num_epochs": num_epochs, "lr": lr}
 
         base_out_path = pathlib.Path(self.argdict["outpath"])
@@ -348,7 +353,7 @@ if __name__ == '__main__':
         # torch.cuda.empty_cache()
 
         runner.init_model(**model_args)
-        use_all_times = not isinstance(dataset, (Mimic, MITECG, PAM))
+        use_all_times = not isinstance(dataset, (Mimic, Boiler, MITECG, PAM))
         if train_models:
             runner.train_model(**model_train_args, use_all_times=use_all_times)
         else:
@@ -378,7 +383,7 @@ if __name__ == '__main__':
                     log.info(f"Running Explanations..."
                              f"Data={dataset.get_name()}, Explainer={explainer_name}, Dict={explainer_dict}")
 
-                    runner.load_generators()
+                    # runner.load_generators()
                     runner.run_attributes()
                     runner.save_importance()
                     importances = runner.importances

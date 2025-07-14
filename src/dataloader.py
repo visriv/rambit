@@ -12,7 +12,7 @@ import torch
 from sklearn.model_selection import KFold
 from torch.utils.data import TensorDataset, DataLoader, Subset
 from pathlib import Path
-from src.data_utils  import process_MITECG, process_MITECG_for_WINIT, process_PAM, PAMDataset
+from src.data_utils  import process_MITECG, process_Boiler_WinIT, process_Boiler_OLD, process_MITECG_for_WINIT, process_PAM, PAMDataset
 from sklearn.model_selection import train_test_split
 
 
@@ -275,6 +275,102 @@ class Mimic(WinITDataset):
     def num_classes(self) -> int:
         return 1
     
+class Boiler(WinITDataset):
+    """
+    The Boiler dataset
+    Num Features = 20, Num Times = 36, Num Classes = 2, Samples: 90,115
+    """
+
+    def __init__(
+        self,
+        data_path: pathlib.Path = pathlib.Path("./data/"),
+        batch_size: int = 100,
+        testbs: int | None = None,
+        deterministic: bool = False,
+        file_name: str = "patient_vital_preprocessed.pkl",
+        cv_to_use: List[int] | int | None = None,
+        seed: int | None = 1234,
+        # split_no: ,
+        device: str = 'cuda'
+    ):
+        super().__init__(data_path, batch_size, testbs, deterministic, cv_to_use, seed)
+        self.file_name = file_name
+        # self.split_no = split_no
+        self.device = device
+        self.data_path = data_path
+
+
+    def load_data(self, train_ratio=0.8):
+        D = process_Boiler_OLD(
+                           split_no = '1',
+                           device = self.device, 
+                           train_ratio=0.8,
+                        #    need_binarize = True, 
+                        #    exclude_pac_pvc = True, 
+                           base_path = Path(self.data_path) / 'Boiler')
+
+
+        train, val, test = D
+
+        # unpack your new dataset tuples
+        # train[0] has shape (T, N_train, F)
+        # train[2] has shape (N_train,)
+        X_tr_raw, _, y_tr_raw = train
+        X_va_raw, _, y_va_raw = val
+        X_te_raw, _, y_te_raw = test
+
+        # get dimensions
+        T_tr, N_tr, F = X_tr_raw.shape
+        T_te, N_te, _ = X_te_raw.shape
+
+        assert F == X_te_raw.shape[2], "feature‐dim mismatch!"
+        assert T_tr == T_te, "time‐dim must match across splits!"
+
+        # permute into (N, F, T)
+        X_train = X_tr_raw.permute(1, 2, 0)   # (N_train, F, T)
+        X_test  = X_te_raw.permute(1, 2, 0)   # (N_test,  F, T)
+
+        # expand labels to (N, T)
+        y_train = y_tr_raw.unsqueeze(1).repeat(1, T_tr)  # (N_train, T)
+        y_test  = y_te_raw.unsqueeze(1).repeat(1, T_tr)  # (N_test,  T)
+
+        # now plug into your existing loader‐builder
+        self._get_loaders(X_train, y_train, X_test, y_test)
+
+
+        # self._get_loaders(X_train, y_train, X_test, y_test)
+
+    @staticmethod
+    def normalize(train_data, test_data, feature_size):
+        d = np.stack([x.T for x in train_data], axis=0)
+        num_timesteps = train_data.shape[-1]
+        feature_means = np.tile(np.mean(d.reshape(-1, feature_size), axis=0), (num_timesteps, 1)).T
+        feature_std = np.tile(np.std(d.reshape(-1, feature_size), axis=0), (num_timesteps, 1)).T
+        np.seterr(divide="ignore", invalid="ignore")
+        train_data = np.array(
+            [
+                np.where(feature_std == 0, (x - feature_means), (x - feature_means) / feature_std)
+                for x in train_data
+            ]
+        )
+        test_data = np.array(
+            [
+                np.where(feature_std == 0, (x - feature_means), (x - feature_means) / feature_std)
+                for x in test_data
+            ]
+        )
+        return train_data, test_data
+
+    def get_name(self) -> str:
+        return "boiler"
+
+    @property
+    def data_type(self) -> str:
+        return "boiler"
+
+    @property
+    def num_classes(self) -> int:
+        return 1
 
 class MITECG(WinITDataset):
     """
