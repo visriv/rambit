@@ -304,7 +304,7 @@ class Boiler(WinITDataset):
         D = process_Boiler_OLD(
                            split_no = '1',
                            device = self.device, 
-                           train_ratio=0.8,
+                           train_ratio=train_ratio,
                         #    need_binarize = True, 
                         #    exclude_pac_pvc = True, 
                            base_path = Path(self.data_path) / 'Boiler')

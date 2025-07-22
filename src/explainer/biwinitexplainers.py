@@ -5,6 +5,7 @@ import pathlib
 from time import time
 import time as time_og
 from tqdm import tqdm
+from typing import Dict
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -37,7 +38,7 @@ class BiWinITExplainer(BaseExplainer):
         metric: str = "pd",
         # height: int = 2,
         random_state: int | None = None,
-        **kwargs,
+        other_args: Dict = {},
     ):
         """
         Construtor
@@ -78,8 +79,8 @@ class BiWinITExplainer(BaseExplainer):
         self.joint = joint
         self.conditional = conditional
         self.metric = metric
-        self.mask_strategy = kwargs['mask_strategy'],
-        self.height = kwargs['height']
+        self.mask_strategy = other_args['mask_strategy'],
+        self.height = other_args['height']
         self.generators: BaseFeatureGenerator | None = None
         self.path = path
         if train_loader is not None:
@@ -91,8 +92,8 @@ class BiWinITExplainer(BaseExplainer):
         self.rng = np.random.default_rng(random_state)
         self.k_upper_triangular_mask = self._precompute_k()
         self.log = logging.getLogger(BiWinITExplainer.__name__)
-        if len(kwargs):
-            self.log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
+        # if len(other_args):
+        #     self.log.warning(f"other_args is not empty. Unused kwargs={other_args}")
 
     def _model_predict(self, x):
         """
@@ -106,10 +107,93 @@ class BiWinITExplainer(BaseExplainer):
             return prob_distribution
         return p
 
+
+
+    def mask_and_score(
+        self,
+        x: torch.Tensor,
+        coords: list[tuple[int,int]]
+    ) -> torch.Tensor:
+        """
+        Compute I({coords}) = f(X) - f(X_masked) for *each* example in the batch.
+
+        Args:
+          x: [B, D, T] input batch
+          coords: list of (t,d) positions to mask simultaneously
+
+        Returns:
+          delta: [B] tensor, where
+                 delta[i] = PD(f(X[i]),  f(X_masked[i]))
+        """
+
+        # 1) original scores for the batch
+        f_orig = self._model_predict(x)           # shape [B]
+
+        # 2) masked copy
+        x_masked = x.clone()
+        # print('x_masked.shape', x_masked.shape)
+        for t, d in coords:
+            x_masked[:, d, t] = 0 # TODO replace with CF later
+
+        # 3) masked scores
+        f_masked = self._model_predict(x_masked)  # shape [B]
+
+
+        diff = self._compute_metric(f_orig, f_masked)
+
+        # 4) return difference for each example
+        return diff
+    
+
+    def mask_and_score_windowed(
+        self,
+        x: torch.Tensor,
+        blob: list[tuple[int,int]]
+    ) -> torch.Tensor:
+        """
+        Compute I({coords}) = f(X) - f(X_masked) for *each* example in the batch.
+
+        Args:
+          x: [B, D, T] input batch
+          blob: list of (t,d) positions to mask simultaneously
+
+        Returns:
+        array of W scores: can be zero if exceeds the number of time steps, otherwise the pred diff for that target time
+          delta: [B] tensor, where
+                 delta[i] = PD(f(X[i]),  f(X_masked[i]))
+        """
+
+        B, D, T = x.shape
+        t_all = [t for t, d in blob]
+        t_max = max(t_all)
+
+        # t_curr, d_curr = coords
+        imp_score = np.zeros((B, T, D, self.window_size), dtype=float) # TDWB
+        imp_score = []
+
+        for w in range(1, self.window_size+1):
+            t_target = t_max + w - 1
+            if (t_target >= T):
+                # imp_score[:,t_curr,:,w] = 0
+                imp_score.append(0)
+            else:
+                f_orig = self._model_predict(x[:,:, 0:t_target+1])  
+                x_masked = x.clone()
+                # CF = self._compute_cf(B, t, x) # S, B, D, T
+                for t, d in blob:
+                    x_masked[:, d, t] = 0 # TODO replace with CF later
+
+                f_masked = self._model_predict(x_masked)  
+
+                diff = self._compute_metric(f_orig, f_masked)
+                imp_score.append(diff)
+
+        return imp_score
+
     def _precompute_k(self):
         # k[n, t] = how far down from d_start we go at offset n, time t
         W = self.window_size
-        T = self.max_timesteps  # or pass in when you know it
+        T = 36 # self.num_timesteps  # or pass in when you know it
         k = np.zeros((W, T), dtype=int)
         for n in range(1, W+1):
             span = n - 1
@@ -117,11 +201,27 @@ class BiWinITExplainer(BaseExplainer):
                 t_s = t - span
                 if span > 0 and t_s >= 0:
                     α = (t - t_s) / span
-                    k[n-1, t] = int(round((α**self.slope)*(self.height - 1)))
+                    k[n-1, t] = int(round((α**0.01)*(self.height - 1)))
                 else:
                     k[n-1, t] = 0
         return k
     
+    def _compute_cf(self, B, t, sample_x):
+        # Compute and cache a CF matrix to replace in the mask later
+        ## Sample counterfactuals for every (f, s, b, t)
+        batch_size = B
+        CF = torch.empty((self.num_samples, batch_size, self.num_features, t+1), device=self.device, dtype=sample_x.dtype)
+        # N_hist = self.data_distribution.shape[0] * self.data_distribution.shape[2]  # N_samples × T
+
+        for f in range(self.num_features):
+            # flatten historical values for feature f
+            vals = self.data_distribution[:, f, :].reshape(-1)  # shape (N_hist,)
+            # draw S×B×T values
+            draws = self.rng.choice(vals, size=(self.num_samples, batch_size, t+1))
+            CF[:, :, f, :] = torch.from_numpy(draws).to(self.device)
+
+        ## CF generation complete
+        return CF
     def attribute(self, x):
         """
         Compute the WinIT attribution.
@@ -164,19 +264,7 @@ class BiWinITExplainer(BaseExplainer):
                     .reshape(self.num_samples * batch_size, p_y.shape[-1])
                 )
 
-                # Compute and cache a CF matrix to replace in the mask later
-                ## Sample counterfactuals for every (f, s, b, t)
-                CF = torch.empty((self.num_samples, batch_size, self.num_features, t+1), device=self.device, dtype=x.dtype)
-                # N_hist = self.data_distribution.shape[0] * self.data_distribution.shape[2]  # N_samples × T
-
-                for f in range(self.num_features):
-                    # flatten historical values for feature f
-                    vals = self.data_distribution[:, f, :].reshape(-1)  # shape (N_hist,)
-                    # draw S×B×T values
-                    draws = self.rng.choice(vals, size=(self.num_samples, batch_size, t+1))
-                    CF[:, :, f, :] = torch.from_numpy(draws).to(self.device)
-
-                ## CF generation complete
+                CF = self._compute_cf(batch_size, t, x)
 
                 for n in range(window_size):
                     time_past = t - n
@@ -288,25 +376,45 @@ class BiWinITExplainer(BaseExplainer):
                 each a masked version of X_in with independent CF draws.
         """
         B, F, T = X_in.shape
+        S = self.num_samples
+        offset_n = t_end - t_start - 1
+        # 1) Expand
+        X_exp = X_in.unsqueeze(0).expand(S, B, F, T)   # (S,B,F,T)
 
-        # 1) build single‐sample upper‐right mask M[d,t] in {0,1}
+        # 2) Clone for X1_out
+        X1_out = X_exp.clone()
 
-        M1, M2 = self.get_mask(mask_strategy=mask_strategy, D=F, T=T, t_start=t_start, t_end=t_end, d_start=d_start, height=height)
-        mask1 = torch.from_numpy(M1).to(device).bool().unsqueeze(0).expand(B, F, T)     # B x F x T                                       # F x T
-        mask2 = torch.from_numpy(M2).to(device).bool().unsqueeze(0).expand(B, F, T)     # B x F x T                                       # F x T
+        # 3) Compute r = d_start + k[n-1, t_end]
+        r = d_start + self.k_upper_triangular_mask[offset_n-1, t_end]
+        r = min(r, F-1)  # clamp
 
+        # 4) Slice‐assign the whole block in one go
+        X1_out[
+            : , : , 
+            d_start : r+1, 
+            t_start : t_end+1
+        ] = CF[
+            : , : , 
+            d_start : r+1, 
+            t_start : t_end+1
+        ]
 
-        # 2) prepare expanded X and mask for batch of S samples
-        X_exp = X_in.unsqueeze(0).expand(num_samples, B, F, T)  # (S, B, F, T)
-        mask1_exp = mask1.unsqueeze(0).expand(num_samples, B, F, T)
-        mask2_exp = mask2.unsqueeze(0).expand(num_samples, B, F, T)
+        # 5) Build X2_out by undoing the head cell
+        X2_out = X1_out.clone()
+        X2_out[
+            : , : , 
+            d_start, 
+            t_start
+        ] = X_exp[
+            : , : , 
+            d_start, 
+            t_start
+        ]
 
-
-
-        # 4) apply mask: wherever mask==1, use CF, else keep X
-        X1_out = torch.where(mask1_exp, CF, X_exp).permute(2,0,1,3)  # (S, B, F, T)
-        X2_out = torch.where(mask2_exp, CF, X_exp).permute(2,0,1,3)  # (S, B, F, T)
-
+        # 6) Permute back to (B,S,F,T) or whatever your model needs
+        #    (in your code you did .permute(2,0,1,3))
+        X1_out = X1_out.permute(2,0,1,3)
+        X2_out = X2_out.permute(2,0,1,3)
         return X1_out, X2_out
 
 
@@ -315,12 +423,10 @@ class BiWinITExplainer(BaseExplainer):
         mask_strategy = mask_strategy[0]
         if (mask_strategy == "upper_triangular"):
             M1, M2 = self.fast_upper_right_mask(D, T, t_start, t_end, d_start, height)
-        elif (mask_strategy == "upper_triangular_wo_head"):
-            M1, M2 = self.build_upper_right_mask(D, T, t_start, t_end, d_start, height)
+        
         elif (mask_strategy == "box"):
             M1, M2 = self.build_rectangular_mask(D, T, t_start, t_end, d_start, height)
-        elif (mask_strategy == "box_wo_head"):
-            M1, M2 = self.build_rectangular_mask(D, T, t_start, t_end, d_start, height)
+        
         return M1, M2
         
     def build_rectangular_mask(
