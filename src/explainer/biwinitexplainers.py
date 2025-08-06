@@ -183,10 +183,13 @@ class BiWinITExplainer(BaseExplainer):
                 for t, d in blob:
                     x_masked[:, d, t] = 0 # TODO replace with CF later
 
+                # print(x_masked.device)
                 f_masked = self._model_predict(x_masked)  
 
                 diff = self._compute_metric(f_orig, f_masked)
                 imp_score.append(diff)
+
+                del diff, f_masked, f_orig, x_masked
 
         return imp_score
 
@@ -206,12 +209,15 @@ class BiWinITExplainer(BaseExplainer):
                     k[n-1, t] = 0
         return k
     
-    def _compute_cf(self, B, t, sample_x):
+    def _compute_cf(self, B, t, sample_x, all_zero_cf):
         # Compute and cache a CF matrix to replace in the mask later
         ## Sample counterfactuals for every (f, s, b, t)
         batch_size = B
         CF = torch.empty((self.num_samples, batch_size, self.num_features, t+1), device=self.device, dtype=sample_x.dtype)
         # N_hist = self.data_distribution.shape[0] * self.data_distribution.shape[2]  # N_samples × T
+        if (all_zero_cf):
+            return CF
+        
 
         for f in range(self.num_features):
             # flatten historical values for feature f
@@ -222,7 +228,7 @@ class BiWinITExplainer(BaseExplainer):
 
         ## CF generation complete
         return CF
-    def attribute(self, x):
+    def attribute(self, x, all_zero_cf):
         """
         Compute the WinIT attribution.
 
@@ -264,7 +270,7 @@ class BiWinITExplainer(BaseExplainer):
                     .reshape(self.num_samples * batch_size, p_y.shape[-1])
                 )
 
-                CF = self._compute_cf(batch_size, t, x)
+                CF = self._compute_cf(batch_size, t, x, all_zero_cf)
 
                 for n in range(window_size):
                     time_past = t - n

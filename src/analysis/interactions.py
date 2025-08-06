@@ -8,6 +8,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
 sys.path.insert(0, PROJECT_ROOT)
 from src.explainer.explainers import BaseExplainer  # adjust import to your project structure
 from typing import Any, List, Tuple, Union
+from tqdm.auto import tqdm
 
 # Coords = Union[Tuple[int,int], List[Tuple[int,int]]]
 Coords = Union[Tuple[int,int], List[Tuple[int,int]]]
@@ -51,19 +52,42 @@ def _to_list(c: Coords) -> List[Tuple[int,int]]:
 def single_importance(
     explainer: BaseExplainer,
     x: Any,
-    p: Coords
+    p: Coords,
+    out_dir: Path
 ) -> float:
     """
     Single importance:
         I({p}) = f(x) − f(x with pixel p masked)
     """
-    imp_score = {}
+
+    path = out_dir / "imp_score_partial_dict_96.npy"
+    save_every = 5
+    if path.exists():
+        imp_score = np.load(path, allow_pickle=True).item()   # or np.load(...).item() if it's a dict
+    else:
+        imp_score = {} 
+        
     if isinstance(p, tuple):
         return explainer.mask_and_score_windowed(x, _to_list(p))
     else:
-        for item in p:
-            blob = item
-            imp_score[item] = explainer.mask_and_score_windowed(x, _to_list(blob))
+        new_cnt = 0
+        for item in tqdm(p, desc="single_importance", leave=False):
+            if item in imp_score:   # skip if already computed
+                continue
+            # print('item passed to mask score function:', item)
+            val = explainer.mask_and_score_windowed(x, _to_list(item))
+            # print(len(val))
+            # optional: force CPU numpy for lighter cache
+            if torch.is_tensor(val):
+                val = val.detach().cpu().numpy()
+            imp_score[item] = val
+            new_cnt += 1
+
+            if new_cnt % save_every == 0:
+                np.save(path, imp_score, allow_pickle=True)
+
+        np.save(path, imp_score, allow_pickle=True)
+
 
         return imp_score
 
@@ -210,3 +234,65 @@ def compute_residual_interactions(
         # np.save(out_dir / f"delta_{p}_{q}.npy", delta_arr)
 
     return all_Ip, all_Ipq, delta
+
+
+import gc, torch, numpy as np
+from typing import List, Tuple, Any
+
+def chunks(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i:i+n]
+
+
+def to_numpy_2d(v, device):
+    if torch.is_tensor(v):
+        return v.detach().cpu().numpy()
+    if isinstance(v, (list, tuple)):
+        parts = [torch.as_tensor(t, device=device) if not torch.is_tensor(t) else t
+                 for t in v]
+        return torch.stack(parts, dim=1).detach().cpu().numpy()
+    v = np.asarray(v)
+    return v.reshape(-1, 1)  # fallback
+
+
+def single_importance_chunked(
+    explainer,
+    X,                      # torch.Tensor [B, ...]
+    pixels: List[Tuple[int,int]],
+    chunk_pix: int = 32,     # pixels per chunk
+    chunk_batch: int = 64,   # batch samples per chunk
+    device: str = "cuda"
+):
+    """
+    Returns dict: (t,d) -> np.ndarray of shape (B, W)
+    Assumes explainer.mask_and_score_windowed(x_sub, [(t,d)]) -> torch.Tensor [bs, W]
+    """
+    B = X.shape[0]
+    W = explainer.window_size
+    out = {}                # fill gradually
+
+    with torch.inference_mode():
+        for p_chunk in chunks(pixels, chunk_pix):
+            # pre-create arrays on CPU
+            buf = {p: np.empty((B, W), dtype=np.float32) for p in p_chunk}
+
+            for b0 in range(0, B, chunk_batch):
+                b1 = min(b0 + chunk_batch, B)
+                xb = X[b0:b1].to(device, non_blocking=True)
+
+                for p in p_chunk:
+                    scores = explainer.mask_and_score_windowed(xb, [p])  # [bs, W] tensor
+                    arr    = to_numpy_2d(scores, xb.device)      # (bs, W)
+
+                    buf[p][b0:b1] = arr
+
+                del xb
+                torch.cuda.empty_cache()
+
+            # move into master dict and free intermediates
+            out.update(buf)
+            del buf
+            gc.collect()
+            torch.cuda.empty_cache()
+
+    return out
