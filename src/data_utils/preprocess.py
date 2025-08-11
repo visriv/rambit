@@ -502,10 +502,6 @@ class EpiDataset(torch.utils.data.Dataset):
 epi_base_path = '/home/owq978/TimeSeriesXAI/ECGdata/Epilepsy'
 def process_Epilepsy(split_no = 1, device = None, base_path = epi_base_path):
 
-    # train = torch.load(os.path.join(loc, 'train.pt'))
-    # val = torch.load(os.path.join(loc, 'val.pt'))
-    # test = torch.load(os.path.join(loc, 'test.pt'))
-
     split_path = 'split_{}.npy'.format(split_no)
     idx_train, idx_val, idx_test = np.load(os.path.join(base_path, split_path), allow_pickle = True)
 
@@ -543,10 +539,7 @@ def process_Epilepsy(split_no = 1, device = None, base_path = epi_base_path):
     # print('time', Ptrain_time_tensor)
     print('X', Ptrain_tensor.shape)
     print('time', Ptrain_time_tensor.shape)
-    # print('time of 0', Ptrain_time_tensor.sum())
-    # print('train under 0', (Ptrain_tensor > 1e-10).sum() / Ptrain_tensor.shape[1])
-    #print('After s-permute', Ptrain_time_tensor.shape)
-    #exit()
+
     train_chunk = ECGchunk(Ptrain_tensor, None, Ptrain_time_tensor, ytrain_tensor, device = device)
     val_chunk = ECGchunk(Pval_tensor, None, Pval_time_tensor, yval_tensor, device = device)
     test_chunk = ECGchunk(Ptest_tensor, None, Ptest_time_tensor, ytest_tensor, device = device)
@@ -693,3 +686,51 @@ def process_Boiler_OLD(split_no = 1, train_ratio=0.8, device = None, base_path =
         print(f"{split_name} class distribution: {dist}")
         
     return train_d, val_d, test_d
+
+
+spike_path = '/home/owq978/TimeSeriesXAI/datasets/Spike/'
+def process_Synth(split_no = 1, device = None, base_path = spike_path, regression = False,
+        label_noise = None):
+
+    split_path = os.path.join(base_path, 'split={}.pt'.format(split_no))
+    print("split_path：", split_path)
+
+    D = torch.load(split_path,  weights_only=False)
+
+    D['train_loader'].X = D['train_loader'].X.float().to(device)
+    D['train_loader'].times = D['train_loader'].times.float().to(device)
+    if regression:
+        D['train_loader'].y = D['train_loader'].y.float().to(device)
+    else:
+        D['train_loader'].y = D['train_loader'].y.long().to(device)
+
+    val = []
+    val.append(D['val'][0].float().to(device))
+    val.append(D['val'][1].float().to(device))
+    val.append(D['val'][2].long().to(device))
+    if regression:
+        val[-1] = val[-1].float()
+    D['val'] = tuple(val)
+
+    test = []
+    test.append(D['test'][0].float().to(device))
+    test.append(D['test'][1].float().to(device))
+    test.append(D['test'][2].long().to(device))
+    if regression:
+        test[-1] = test[-1].float()
+    D['test'] = tuple(test)
+
+    if label_noise is not None:
+        # Find some samples in training to switch labels:
+
+        to_flip = int(label_noise * D['train_loader'].y.shape[0])
+        to_flip = to_flip + 1 if (to_flip % 2 == 1) else to_flip # Add one if it isn't even
+
+        flips = torch.randperm(D['train_loader'].y.shape[0])[:to_flip]
+
+        max_label = D['train_loader'].y.max()
+
+        for i in flips:
+            D['train_loader'].y[i] = (D['train_loader'].y[i] + 1) % max_label
+
+    return D

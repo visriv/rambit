@@ -28,7 +28,7 @@ from src.explainer.fitexplainers import FITExplainer
 from src.explainer.generator.generator import GeneratorTrainingResults
 from src.explainer.original_winitexplainers import OGWinITExplainer
 from src.explainer.biwinitexplainers import BiWinITExplainer
-# from src.explainer.winitexplainers import WinITExplainer
+from src.explainer.jimex import JIMEx
 from src.modeltrainer import ModelTrainerWithCv
 from src.plot import BoxPlotter
 from src.utils.basic_utils import aggregate_scores
@@ -265,6 +265,20 @@ class ExplanationRunner:
                     train_loader=train_loader,
                     # height = kwargs['height'],
                     **kwargs,
+                )
+
+        elif explainer_name == "jimex":
+            train_loaders = (
+                self.dataset.train_loaders if explainer_dict.get("usedatadist") is True else None
+            )
+            self.explainers = {}
+            kwargs = explainer_dict.copy()
+            if "usedatadist" in kwargs:
+                kwargs.pop("usedatadist")
+            for cv in self.dataset.cv_to_use():
+                train_loader = train_loaders[cv] if train_loaders is not None else None
+                self.explainers[cv] = JIMEx(
+                    device = self.device
                 )
 
         elif explainer_name == "fit":
@@ -744,7 +758,7 @@ class ExplanationRunner:
 
                 explainer_score = np.nan_to_num(explainer_score)
                 auc_score = metrics.roc_auc_score(gt_score, explainer_score)
-                aupr_score = metrics.average_precision_score(gt_score, explainer_score)
+                AP_score = metrics.average_precision_score(gt_score, explainer_score)
                 prec_score, rec_score, thresholds = metrics.precision_recall_curve(
                     gt_score, explainer_score
                 )
@@ -752,9 +766,9 @@ class ExplanationRunner:
 
                 pos_ratio = ground_truth_importance.sum() / len(ground_truth_importance)
                 result = {
-                    "Auroc": auc_score,
-                    "Avpr": aupr_score,
-                    "Auprc": auprc_score,
+                    "AUROC": auc_score,
+                    "AP": AP_score,
+                    "AUPRC": auprc_score,
                     "Mean rank": mean_rank,
                     "Mean rank (min)": mean_rank_min,
                     "Pos ratio": pos_ratio,

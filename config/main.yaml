@@ -1,26 +1,20 @@
 # config/main.yaml
 
 # ─── Dataset & Seeds ──────────────────────────────────────────────────────────
-data: seqcombmv                     # choices: [spike, state, switch, pam, boiler, mitecg, mimic, data_l2x]
+data: boiler                     # choices: [spike, state, switch, pam, mitecg, boiler, mimic, data_l2x]
 delay: 0                        # choices: [0,1,2,3,4]
-explainer:                      # one or more of [fit, winit, biwinit, jimex,  ig, deeplift, fo, afo, gradientshap, dynamask]
-  - jimex
+explainer:                      # one or more of [fit, winit, ig, deeplift, fo, afo, gradientshap, dynamask]
   - winit
-  - biwinit
-  - deeplift
-  # - gradientshap
-  # - ig 
-  # - dynamask
 cv:                             # cross‐validation folds to run
   - 0
   # - 1
   # - 2
   # - 3
   # - 4
-train_ratio: 0.99
-testbs: 32                   # test batch size
+train_ratio: 0.80               # keep it around 0.97 only when training is not required - only for testing
+testbs: 128                     # test batch size
 dataseed: 1234                  # random state for data split
-datapath: "./data/"                  # path to raw data (null = use default)
+datapath: null                  # path to raw data (null = use default)
 explainerseed: 2345             # random state for explainer
 
 # ─── Output / Path Settings ───────────────────────────────────────────────────
@@ -32,10 +26,10 @@ resultfile: "results.csv"       # name of CSV for final results
 logfile: null                   # if non‐null, name of individual run’s log file
 
 # ─── Run Modes ────────────────────────────────────────────────────────────────
-train: false                    # if true, run model training
+train: true                    # if true, run model training
 traingen: false                 # if true, run generator training
-skipexplain: false              # if true, skip explanation generation
-eval: true                     # if true, run feature‐importance evaluation
+skipexplain: true              # if true, skip explanation generation
+eval: false                     # if true, run feature‐importance evaluation
 loglevel: info                  # one of [warning, info, error, debug]
 nondeterministic: false         # if true, PyTorch is non‐deterministic
 
@@ -47,6 +41,7 @@ numlayers: 1                    # number of RNN layers (choices: [1,2,3])
 modeltype: "gru"                # architecture (choices: [conv, lstm, gru])
 lr: null                        # learning rate (null = use default inside code)
 epochs_classifier: 15
+
 # ─── Generator Settings ───────────────────────────────────────────────────────
 joint: false                    # if true, use joint generator
 conditional: false              # if true, use conditional generator
@@ -62,15 +57,13 @@ loss: null                      # one of [logloss, ce] or null
 epoch: 200                      # # of Dynamask epochs
 lastonly: null                  # "True" or "False" or null
 
-# ─── WinIT / BiWinIT (/FIT) Settings ─────────────────────────────────────────────────
+# ─── WinIT (and FIT) Settings ─────────────────────────────────────────────────
 window:                         # list of window sizes
   - 10
 winitmetric:                    # list of metrics (choices: [kl, js, pd])
   - pd
-usedatadist: true              # if true, sample masked features from data dist
+usedatadist: false              # if true, sample masked features from data dist
 samples: -1                     # # of samples for masked features in WinIT
-height : 3
-mask_strategy: upper_triangular  # - upper_triangular_wo_head # box # box_wo_head
 
 # ─── Evaluation Settings ─────────────────────────────────────────────────────
 maskseed: 43814                 # tie‐breaker seed for importance scores

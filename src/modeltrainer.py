@@ -7,7 +7,7 @@ from typing import Dict
 
 import numpy as np
 import torch
-from sklearn.metrics import roc_auc_score, recall_score, precision_score
+from sklearn.metrics import roc_auc_score, recall_score, precision_score, precision_recall_fscore_support, accuracy_score
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -314,28 +314,66 @@ class ModelTrainer:
         all_probs = np.concatenate(all_probs)
         epoch_loss = epoch_loss / len(dataloader)
 
-        auc = (
-            0
-            if len(np.unique(all_labels)) < 2 or multiclass
-            else roc_auc_score(all_labels.reshape(-1), all_probs.reshape(-1))
-        )
-        all_preds = (all_probs > 0.5).astype(int)
-        recall = (
-            0
-            if multiclass
-            else recall_score(all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0)
-        )
-        precision = (
-            0
-            if multiclass
-            else precision_score(all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0)
-        )
-        accuracy = 0 if multiclass else float(np.mean(all_labels == all_preds))
+        # auc = (
+        #     0
+        #     if len(np.unique(all_labels)) < 2 or multiclass
+        #     else roc_auc_score(all_labels.reshape(-1), all_probs.reshape(-1))
+        # )
+        # all_preds = (all_probs > 0.5).astype(int)
+        # recall = (
+        #     0
+        #     if multiclass
+        #     else recall_score(all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0)
+        # )
+        # precision = (
+        #     0
+        #     if multiclass
+        #     else precision_score(all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0)
+        # )
+        # accuracy = 0 if multiclass else float(np.mean(all_labels == all_preds))
+        y = np.asarray(all_labels)
+        p = np.asarray(all_probs)
+
+        if not multiclass:
+            # ---- Binary ----
+            # prob_pos = p.ravel()
+            # y_pred = (prob_pos >= 0.5).astype(int)
+            all_preds = (all_probs > 0.5).astype(int)               
+            acc = float(np.mean(all_labels == all_preds))
+
+            # AUC only if both classes present
+            auc = np.nan
+            if np.unique(y).size >= 2:
+                try:
+                    auc =  roc_auc_score(all_labels.reshape(-1), all_probs.reshape(-1))
+                except ValueError:
+                    auc = np.nan
+
+            precision = precision_score(all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0)
+            recall = recall_score(all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0)
+            
+
+        else:
+            # ---- Multiclass ----
+            y_pred = np.argmax(p, axis=1)
+            acc = accuracy_score(y, y_pred)
+
+            # Multiclass AUC (needs per-class probs)
+            auc = np.nan
+            if np.unique(y).size >= 2:
+                try:
+                    auc = roc_auc_score(y, p, multi_class="ovr", average="macro")
+                except ValueError:
+                    auc = np.nan
+
+            precision, recall, f1, _ = precision_recall_fscore_support(
+                y, y_pred, average="macro", zero_division=0
+            )
         return EpochResult(
             epoch_loss=epoch_loss,
-            accuracy=accuracy,
+            accuracy=acc,
             auc=auc,
-            precision=precision,
+            precision=precision, 
             recall=recall,
         )
 

@@ -1,0 +1,60 @@
+data: boiler
+delay: 0
+explainer:
+- winit
+cv:
+- 0
+train_ratio: 0.8
+testbs: 128
+dataseed: 1234
+datapath: null
+explainerseed: 2345
+outpath: /home/graph-winit/runs/boiler__gru__winit__cv0/output/
+ckptpath: /home/graph-winit/runs/boiler__gru__winit__cv0/ckpt/
+plotpath: /home/graph-winit/runs/boiler__gru__winit__cv0/plots/
+logpath: /home/graph-winit/runs/boiler__gru__winit__cv0/logs/
+resultfile: results.csv
+logfile: run.log
+train: true
+traingen: false
+skipexplain: true
+eval: false
+loglevel: info
+nondeterministic: false
+hiddensize: 200
+batchsize: 32
+dropout: 0.5
+numlayers: 1
+modeltype: gru
+lr: null
+epochs_classifier: 15
+joint: false
+conditional: false
+epoch_gen: 200
+area: null
+blurtype: null
+deletion: null
+sizereg: null
+timereg: null
+loss: null
+epoch: 200
+lastonly: null
+window:
+- 10
+winitmetric:
+- pd
+usedatadist: false
+samples: -1
+maskseed: 43814
+mask:
+- std
+- end
+top: 50
+toppc: 0.05
+drop:
+- local
+- global
+- bal
+aggregate:
+- mean
+classifier: gru

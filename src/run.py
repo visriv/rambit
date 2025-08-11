@@ -9,19 +9,30 @@ from datetime import datetime
 from typing import Dict, Any, List
 
 import pandas as pd
-import torch.cuda
 from omegaconf import OmegaConf
 from argparse import Namespace 
 import os
+
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+import torch
+torch.use_deterministic_algorithms(True)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+
+import torch.cuda
+
 from src.dataloader import Mimic, Boiler, MITECG, PAM, SimulatedSwitch, SimulatedState, SimulatedSpike, \
-    WinITDataset, SimulatedData, SimulatedL2X
+    WinITDataset, SimulatedData, SimulatedL2X, SeqCombMV
 from src.explainer.explainers import BaseExplainer, DeepLiftExplainer, IGExplainer, \
     GradientShapExplainer
 from src.explainer.masker import Masker
 from src.explanationrunner import ExplanationRunner
 from src.utils.basic_utils import append_df_to_csv
+from src.datagen.spikes_data_new import SpikeTrainDataset 
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 class Params:
     def __init__(self, argdict: Dict[str, Any]):
         self.argdict = argdict
@@ -116,9 +127,13 @@ class Params:
             kwargs["testbs"] = 300 if testbs == -1 else testbs
             return SimulatedState(**kwargs)
         
-        if data == "data_l2x":
+        if data == "simulated_data_l2x":
             kwargs["testbs"] = 300 if testbs == -1 else testbs
             return SimulatedL2X(**kwargs)
+        
+        if data == "seqcombmv":
+            kwargs["testbs"] = 300 if testbs == -1 else testbs
+            return SeqCombMV(**kwargs)
 
         raise ValueError(f"Unknown data {data}")
 
@@ -131,7 +146,7 @@ class Params:
             if explainer == "dynamask":
                 explainer_dict = self._resolve_dynamask_explainer_dict()
                 all_explainer_dict[explainer] = [explainer_dict]
-            elif explainer in ["winit", "biwinit"]:
+            elif explainer in ["winit", "biwinit", "jimex"]:
                 windows = self.argdict["window"]
                 winit_metrics = self.argdict["winitmetric"]
                 
@@ -325,8 +340,8 @@ if __name__ == '__main__':
     result_file = argdict["resultfile"]
     epoch_gen = argdict["epoch_gen"]
     train_ratio = argdict.get("train_ratio") or 0.8
-    # device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cpu"
 
     # parse the arg
     params = Params(argdict)
@@ -353,7 +368,7 @@ if __name__ == '__main__':
         # torch.cuda.empty_cache()
 
         runner.init_model(**model_args)
-        use_all_times = not isinstance(dataset, (Mimic, Boiler, MITECG, PAM))
+        use_all_times = not isinstance(dataset, (SeqCombMV, Mimic, Boiler, MITECG, PAM))
         if train_models:
             runner.train_model(**model_train_args, use_all_times=use_all_times)
         else:

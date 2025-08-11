@@ -63,15 +63,18 @@ def impute_lab(lab_data):
     return lab_data_impute
 
 
-vital_data = pd.read_csv("./data/adult_icu_vital.gz", compression='gzip')#, nrows=5000)
+vital_data = pd.read_csv("./data/mimic3/adult_icu_vital.gz", compression='gzip')#, nrows=5000)
 #print("Vitals:\n", vital_data[0:20])
-vital_data = vital_data.dropna(subset=['vitalid'])
+print('vital_data.columns', vital_data.columns)
+vital_data = vital_data.dropna(subset=['VitalID'])
 
-lab_data = pd.read_csv("./data/adult_icu_lab.gz", compression='gzip')#, nrows=5000)
+lab_data = pd.read_csv("./data/mimic3/adult_icu_lab.gz", compression='gzip')#, nrows=5000)
+print('lab_data.columns', lab_data.columns)
+
 #print("Labs:\n", lab_data[0:20])
 lab_data = lab_data.dropna(subset=['label'])
 
-icu_id = vital_data.icustay_id.unique()
+icu_id = vital_data.ICUSTAY_ID.unique()
 ## features for every patient will be the list of vital IDs, gender(male=1, female=0), age, ethnicity(unknown=0 ,white=1, black=2, hispanic=3, asian=4, other=5), first_icu_stay(True=1, False=0)
 x = np.zeros((len(icu_id), 12 , 48))
 x_lab = np.zeros((len(icu_id), len(lab_IDs) , 48))
@@ -86,12 +89,12 @@ missing_map_lab = np.zeros((len(icu_id), len(lab_IDs)))
 nan_map = np.zeros((len(icu_id), len(lab_IDs)+12))
 
 for i,id in enumerate(icu_id):
-    patient_data = vital_data.loc[vital_data['icustay_id']==id]
-    patient_data['vitalcharttime'] = patient_data['vitalcharttime'].astype('datetime64[s]')
-    patient_lab_data = lab_data.loc[lab_data['icustay_id']==id]
-    patient_lab_data['labcharttime'] = patient_lab_data['labcharttime'].astype('datetime64[s]')
+    patient_data = vital_data.loc[vital_data['ICUSTAY_ID']==id]
+    patient_data['VitalChartTime'] = patient_data['VitalChartTime'].astype('datetime64[s]')
+    patient_lab_data = lab_data.loc[lab_data['ICUSTAY_ID']==id]
+    patient_lab_data['LabChartTime'] = patient_lab_data['LabChartTime'].astype('datetime64[s]')
 
-    admit_time = patient_data['vitalcharttime'].min()
+    admit_time = patient_data['VitalChartTime'].min()
     #print('Patient %d admitted at '%(id),admit_time)
     n_missing_vitals = 0
 
@@ -103,12 +106,12 @@ for i,id in enumerate(icu_id):
     y[i] = (int(patient_data['mort_icu'].iloc[0]))
 
     ## Extract vital measurement information
-    vitals = patient_data.vitalid.unique()
+    vitals = patient_data.VitalID.unique()
     for vital in vitals:
         try:
             vital_IDs.index(vital)
-            signal = patient_data[patient_data['vitalid']==vital]
-            quantized_signal, _ = quantize_signal(signal, start=admit_time, step_size=1, n_steps=48, value_column='vitalvalue', charttime_column='vitalcharttime')
+            signal = patient_data[patient_data['VitalID']==vital]
+            quantized_signal, _ = quantize_signal(signal, start=admit_time, step_size=1, n_steps=48, value_column='VitalValue', charttime_column='VitalChartTime')
             nan_arr, nan_count = check_nan(quantized_signal)
             x[i, vital_IDs.index(vital) , :] = np.array(quantized_signal)
             nan_map[i,len(lab_IDs)+vital_IDs.index(vital)] = nan_count
@@ -126,7 +129,7 @@ for i,id in enumerate(icu_id):
         try:
             lab_IDs.index(lab)
             lab_measures = patient_lab_data[patient_lab_data['label']==lab]
-            quantized_lab , quantized_measures = quantize_signal(lab_measures, start=admit_time, step_size=1, n_steps=48, value_column='labvalue', charttime_column='labcharttime')
+            quantized_lab , quantized_measures = quantize_signal(lab_measures, start=admit_time, step_size=1, n_steps=48, value_column='LabValue', charttime_column='LabChartTime')
             nan_arr, nan_count = check_nan(quantized_lab)
             x_lab[i, lab_IDs.index(lab) , :] = np.array(quantized_lab)
             nan_map[i,lab_IDs.index(lab)] = nan_count
@@ -141,7 +144,7 @@ for i,id in enumerate(icu_id):
 
 
 ## Record statistics of the dataset, remove missing samples and save the signals
-f = open("./data/stats.txt","a")
+f = open("./data/mimic3/stats.txt","a")
 f.write('\n ******************* Before removing missing *********************')
 f.write('\n Number of patients: '+ str(len(y))+'\n Number of patients who died within their stay: '+str(np.count_nonzero(y)))
 f.write("\nMissingness report for Vital signals")
@@ -177,6 +180,6 @@ for i,lab in enumerate(lab_IDs):
 f.close()
 
 samples = [ (all_data[i,:,:],y[i],nan_map[i,:]) for i in range(len(y)) ]
-with open('./data/patient_vital_preprocessed.pkl','wb') as f:
+with open('./data/mimic3/patient_vital_preprocessed.pkl','wb') as f:
         pickle.dump(samples, f)
 

@@ -1,7 +1,7 @@
 # config/main.yaml
 
 # ─── Dataset & Seeds ──────────────────────────────────────────────────────────
-data: boiler                     # choices: [spike, state, switch, pam, mitecg, boiler, mimic, data_l2x]
+data: seqcombmv                   # choices: [spike, state, switch, seqcombmv, pam, mitecg, boiler, mimic]
 delay: 0                        # choices: [0,1,2,3,4]
 explainer:                      # one or more of [fit, winit, ig, deeplift, fo, afo, gradientshap, dynamask]
   - winit
@@ -40,7 +40,7 @@ dropout: 0.5                    # dropout rate
 numlayers: 1                    # number of RNN layers (choices: [1,2,3])
 modeltype: "gru"                # architecture (choices: [conv, lstm, gru])
 lr: null                        # learning rate (null = use default inside code)
-epochs_classifier: 15
+epochs_classifier: 215
 
 # ─── Generator Settings ───────────────────────────────────────────────────────
 joint: false                    # if true, use joint generator
