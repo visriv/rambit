@@ -123,7 +123,8 @@ class BoxPlotter:
             for i in range(self.num_to_plot):
                 filename_prefix = f"preds_cv_{cv}" if prefix is None else f"{prefix}_cv_{cv}"
                 self._plot_example_box(
-                    pred[i].reshape(1, -1), self._get_plot_file_name(i, filename_prefix)
+                    pred[i], #.reshape(1, -1), 
+                    self._get_plot_file_name(i, filename_prefix)
                 )
 
     def _get_plot_file_name(self, i: int, prefix: str) -> pathlib.Path:
@@ -131,17 +132,28 @@ class BoxPlotter:
 
     @staticmethod
     def _plot_example_box(input_array, save_location: pathlib.Path):
-        fig, ax = plt.subplots()
+        rows, cols = input_array.shape
+
+        target_min_pix_h = 120
+        dpi = 200
+        h_in = max(rows / dpi, target_min_pix_h / dpi)
+        w_in = h_in * (cols / max(1, rows))
+
+        fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=dpi)
         plt.axis("off")
 
-        ax.imshow(input_array, interpolation="nearest", cmap="gray")
+        ax.imshow(input_array, interpolation="nearest", cmap="gray",  aspect="auto", origin="upper")
 
         plt.gca().set_axis_off()
         plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
         plt.margins(0, 0)
         plt.gca().xaxis.set_major_locator(plt.NullLocator())
         plt.gca().yaxis.set_major_locator(plt.NullLocator())
-        plt.savefig(str(save_location), bbox_inches="tight", pad_inches=0)
-
+        try:
+            fig.savefig(str(save_location), bbox_inches="tight", pad_inches=0)
+        except SystemError:
+            # Fallback if tight bbox causes Pillow to choke on tiny images
+            fig.savefig(str(save_location), bbox_inches=None, pad_inches=0)
+            
         plt.close()
         # print('plot saved at: ', save_location)

@@ -15,6 +15,7 @@ from pathlib import Path
 from src.data_utils  import process_MITECG, process_Boiler_WinIT, process_Synth, \
     process_Boiler_OLD, process_MITECG_for_WINIT, process_PAM, PAMDataset
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedShuffleSplit
 
 
 class WinITDataset(abc.ABC):

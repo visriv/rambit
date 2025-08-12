@@ -38,7 +38,7 @@ class BiWinITExplainer(BaseExplainer):
         metric: str = "pd",
         # height: int = 2,
         random_state: int | None = None,
-        other_args: Dict = {},
+        **kwargs  # capture any extra keyword arguments like height
     ):
         """
         Construtor
@@ -79,8 +79,12 @@ class BiWinITExplainer(BaseExplainer):
         self.joint = joint
         self.conditional = conditional
         self.metric = metric
-        self.mask_strategy = other_args['mask_strategy'],
-        self.height = other_args['height']
+        
+        # Store extra args if needed
+        self.mask_strategy = kwargs.get("mask_strategy", None)
+        self.height = kwargs.get("height", None)
+        self.other_args = kwargs
+        
         self.generators: BaseFeatureGenerator | None = None
         self.path = path
         if train_loader is not None:
@@ -228,7 +232,7 @@ class BiWinITExplainer(BaseExplainer):
 
         ## CF generation complete
         return CF
-    def attribute(self, x, all_zero_cf):
+    def attribute(self, x, all_zero_cf=True):
         """
         Compute the WinIT attribution.
 

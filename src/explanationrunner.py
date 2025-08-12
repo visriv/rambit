@@ -765,10 +765,37 @@ class ExplanationRunner:
                 auprc_score = metrics.auc(rec_score, prec_score) if rec_score.shape[0] > 1 else -1
 
                 pos_ratio = ground_truth_importance.sum() / len(ground_truth_importance)
+
+                # ---------- AUP & AUR (integrate over fraction selected) ----------
+                # Sort by explainer score descending; sweep a threshold to include top-k features
+                order = np.argsort(-explainer_score, kind="mergesort")
+                gt_sorted = gt_score[order]  # 1 if truly important, else 0
+
+                n = gt_sorted.size
+                P = gt_sorted.sum()  # number of truly important features
+
+                if n > 0:
+                    k = np.arange(1, n + 1)                # prefix lengths
+                    x = k / n                               # fraction selected (0→1)
+                    cum_tp = np.cumsum(gt_sorted)
+
+                    # precision@k and recall@k for each prefix
+                    precision_k = cum_tp / k
+                    recall_k = (cum_tp / P) if P > 0 else np.zeros_like(cum_tp, dtype=float)
+
+                    # numeric integration over x (fraction selected)
+                    # trapezoidal rule; gives scalar areas in [0,1]
+                    AUP = float(np.trapz(precision_k, x))
+                    AUR = float(np.trapz(recall_k, x))
+                else:
+                    AUP, AUR = 0.0, 0.0
+                    
                 result = {
                     "AUROC": auc_score,
                     "AP": AP_score,
                     "AUPRC": auprc_score,
+                    "AUP": AUP,            # <-- added
+                    "AUR": AUR,            # <-- added
                     "Mean rank": mean_rank,
                     "Mean rank (min)": mean_rank_min,
                     "Pos ratio": pos_ratio,
