@@ -15,6 +15,7 @@ from tqdm import tqdm
 from src.dataloader import WinITDataset, SimulatedData
 from src.explainer.dynamaskexplainer import DynamaskExplainer
 from src.explainer.masker import Masker
+from src.explainer.masker import Masker1
 from src.explainer.explainers import (
     BaseExplainer,
     IGExplainer,
@@ -810,6 +811,150 @@ class ExplanationRunner:
         df_all = pd.concat(dfs, axis=0)
         df_all.index.name = "aggregate method"
         return df_all
+
+
+    def evaluate_performance_drop1(
+        self,
+        maskers: List[Masker],
+        use_last_time_only: bool = True,
+        k_values: list[float] = (0.75, 0.8, 0.85, 0.9, 0.925, 0.95, 0.975, 0.99),
+        directions: tuple[str, ...] = ("top", "bottom"),
+    ) -> pd.DataFrame:
+        """
+        Real-world evaluation with no GT:
+        For each masker, direction ('top'/'bottom') and k in k_values,
+        - build masked inputs via Masker.mask(..., k, direction, mode='remove'|'keep')
+        - compute metrics per CV:
+            auc_drop, avg_pred_diff, avg_masked_count, comp_k, suff_k
+        Returns:
+        MultiIndexed DataFrame: (mask method, cv, direction, k) -> metrics
+        """
+
+        # ---------------- helpers ----------------
+        def _slice_last(arr):
+            return arr[:, -1] if (use_last_time_only and arr.ndim == 2) else arr
+
+        def _bin_prob(p):
+            # If multiclass (N,C) → use column 1 for ROC-AUC; else flatten
+            return p[:, 1] if (p.ndim == 2 and p.shape[1] > 1) else p.reshape(-1)
+
+        def _prob_of_predclass(orig_probs: np.ndarray, new_probs: np.ndarray):
+            """
+            Return per-sample probability of the ORIGINAL predicted class
+            for both original and new probs.
+            Handles binary (N,) or (N,1) and multiclass (N,C).
+            """
+            if orig_probs.ndim == 1:
+                yhat = (orig_probs >= 0.5).astype(np.int64)
+                p0 = np.where(yhat == 1, orig_probs, 1.0 - orig_probs)
+                pn = np.where(yhat == 1, new_probs.reshape(-1), 1.0 - new_probs.reshape(-1))
+                return p0, pn
+            if orig_probs.ndim == 2 and orig_probs.shape[1] == 1:
+                o = orig_probs[:, 0]
+                n = new_probs.reshape(-1)
+                yhat = (o >= 0.5).astype(np.int64)
+                p0 = np.where(yhat == 1, o, 1.0 - o)
+                pn = np.where(yhat == 1, n, 1.0 - n)
+                return p0, pn
+            # multiclass
+            yhat = np.argmax(orig_probs, axis=1)
+            idx = np.arange(orig_probs.shape[0])
+            return orig_probs[idx, yhat], new_probs[idx, yhat]
+
+        # ---------------- data & original preds ----------------
+        testset = list(self.dataset.test_loader.dataset)
+        x_test = torch.stack([x[0] for x in testset]).cpu().numpy()  # (N,F,T)
+        y_test = torch.stack([x[1] for x in testset]).cpu().numpy()  # (N,) or (N,C)
+        orig_preds = self.run_inference(self.dataset.test_loader, return_all=False)
+
+        results_by_masker = {}
+
+        for masker in maskers:
+            self.log.info(f"[PerfDrop] Masker={masker.get_name()} | directions={directions} | k={k_values}")
+            rows = []
+
+            for direction in directions:
+                for k in k_values:
+                    # ---- REMOVE (for auc_drop, avg_pred_diff, comp_k) ----
+                    new_xs_remove = masker.mask(
+                        x_test, self.importances, k=k, direction=direction, mode="remove"
+                    )
+                    new_xs_remove = {cv: torch.from_numpy(v) for cv, v in new_xs_remove.items()}
+                    new_preds_remove = self.run_inference(new_xs_remove, return_all=False)
+
+                    # ---- KEEP-ONLY (for suff_k) ----
+                    new_xs_keep = masker.mask(
+                        x_test, self.importances, k=k, direction=direction, mode="keep"
+                    )
+                    new_xs_keep = {cv: torch.from_numpy(v) for cv, v in new_xs_keep.items()}
+                    new_preds_keep = self.run_inference(new_xs_keep, return_all=False)
+
+                    # ---- per-CV metrics ----
+                    df = pd.DataFrame()
+                    for cv in self.dataset.cv_to_use():
+                        orig_pred = _slice_last(orig_preds[cv])
+                        rem_pred  = _slice_last(new_preds_remove[cv])
+                        keep_pred = _slice_last(new_preds_keep[cv])
+                        y_vec     = _slice_last(y_test).reshape(-1)
+
+                        # Ensure numpy for metrics
+                        o_np = orig_pred if isinstance(orig_pred, np.ndarray) else orig_pred.detach().cpu().numpy()
+                        r_np = rem_pred  if isinstance(rem_pred,  np.ndarray) else rem_pred.detach().cpu().numpy()
+                        k_np = keep_pred if isinstance(keep_pred, np.ndarray) else keep_pred.detach().cpu().numpy()
+                        y_np = y_vec if isinstance(y_vec, np.ndarray) else y_vec
+
+                        # AUCs (macro if shapes permit; else binary column)
+                        try:
+                            auc_orig = metrics.roc_auc_score(y_np, o_np, average="macro")
+                            auc_rem  = metrics.roc_auc_score(y_np, r_np, average="macro")
+                        except Exception:
+                            auc_orig = metrics.roc_auc_score(y_np, _bin_prob(o_np))
+                            auc_rem  = metrics.roc_auc_score(y_np, _bin_prob(r_np))
+
+                        auc_drop = float(auc_orig - auc_rem)
+                        avg_pred_diff = float(np.mean(np.abs(_bin_prob(o_np) - _bin_prob(r_np))))
+
+                        # Comprehensiveness: avg drop in predicted-class prob after REMOVE
+                        p0, pR = _prob_of_predclass(o_np, r_np)
+                        comp_k = float(np.mean(p0 - pR))
+
+                        # Sufficiency: avg drop when KEEP-ONLY
+                        p0, pK = _prob_of_predclass(o_np, k_np)
+                        suff_k = float(np.mean(p0 - pK))
+
+                        # Avg masked count from masker’s accounting (for REMOVE path)
+                        try:
+                            avg_masked = float((masker.all_masked_count[cv].sum() / len(x_test)).item())
+                        except Exception:
+                            avg_masked = np.nan
+
+                        df.loc[cv, ["auc_drop", "avg_pred_diff", "avg_masked_count", "comp_k", "suff_k"]] = [
+                            auc_drop, avg_pred_diff, avg_masked, comp_k, suff_k
+                        ]
+
+                        # (optional) persist masks for later analysis
+                        mask_dir = self._get_mask_array_path()
+                        mask_dir.mkdir(parents=True, exist_ok=True)
+                        prefix = f"{self.get_explainer_name()}_{masker.get_name()}_{direction}_k={k}_"
+                        try:
+                            np.save(mask_dir / f"{prefix}start_mask_cv_{cv}", masker.start_masked_count[cv].sum(axis=0))
+                            np.save(mask_dir / f"{prefix}all_mask_cv_{cv}",   masker.all_masked_count[cv].sum(axis=0))
+                        except Exception:
+                            pass
+
+                    df.index.name = "cv"
+                    df["direction"] = direction
+                    df["k"] = k
+                    rows.append(df)
+
+            out = pd.concat(rows, axis=0)
+            results_by_masker[masker.get_name()] = out.set_index(["direction", "k"], append=True)
+
+        final = pd.concat(results_by_masker, axis=0)
+        final.index.names = ["mask method", "cv", "direction", "k"]
+        return final
+
+
 
     def _get_mask_array_path(self) -> pathlib.Path:
         return self.plot_path / self.dataset.get_name() / "array"

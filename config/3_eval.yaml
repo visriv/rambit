@@ -1,16 +1,16 @@
 # config/main.yaml
 
 # ─── Dataset & Seeds ──────────────────────────────────────────────────────────
-data: state                     # choices: [spike, state, switch, seqcombmv, pam, boiler, mitecg, mimic]
+data: boiler                     # choices: [spike, state, switch, seqcombmv, pam, boiler, mitecg, mimic]
 delay: 0                        # choices: [0,1,2,3,4]
 explainer:                      # one or more of [fit, winit, biwinit, jimex,  ig, deeplift, fo, afo, gradientshap, dynamask]
-  # - jimex
-  # - winit
+  - jimex
+  - winit
   # - biwinit
-  # - deeplift
-  # - gradientshap
-  # - ig 
-  # - dynamask
+  - deeplift
+  - gradientshap
+  - ig 
+  - dynamask
   - fo
 cv:                             # cross‐validation folds to run
   - 0
@@ -36,7 +36,7 @@ logfile: null                   # if non‐null, name of individual run’s log 
 train: false                    # if true, run model training
 traingen: false                 # if true, run generator training
 skipexplain: false              # if true, skip explanation generation
-eval: true                     # if true, run feature‐importance evaluation
+eval: false                     # if true, run feature‐importance evaluation
 loglevel: info                  # one of [warning, info, error, debug]
 nondeterministic: false         # if true, PyTorch is non‐deterministic
 
@@ -75,11 +75,15 @@ mask_strategy: upper_triangular  # - upper_triangular_wo_head # box # box_wo_hea
 
 # ─── Evaluation Settings ─────────────────────────────────────────────────────
 maskseed: 43814                 # tie‐breaker seed for importance scores
-mask:                           # mask strategies (choices: [std, end])
-  - std
-  - end
-top: 50                         # # of top‐X observations to mask per series
-toppc: 0.05                     # fraction of top observations to mask
+mask:   
+  - cells                        # mask strategies (choices: [cells, std, end])
+  # - std
+  # - end
+# top: 50                         # # of top‐X observations to mask per series
+# toppc: 0.05                     # fraction of top observations to mask
+k_step: 0.05
+k_min: 0
+k_max: 0.99
 drop:                           # masking strategies (choices: [local, global, bal])
   - local
   - global

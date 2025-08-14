@@ -12,7 +12,7 @@ import pandas as pd
 from omegaconf import OmegaConf
 from argparse import Namespace 
 import os
-
+import numpy as np
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 import torch
@@ -27,9 +27,10 @@ from src.dataloader import Mimic, Boiler, MITECG, PAM, SimulatedSwitch, Simulate
     WinITDataset, SimulatedData, SimulatedL2X, SeqCombMV
 from src.explainer.explainers import BaseExplainer, DeepLiftExplainer, IGExplainer, \
     GradientShapExplainer
-from src.explainer.masker import Masker
+from src.explainer.masker import Masker, Masker1
 from src.explanationrunner import ExplanationRunner
 from src.utils.basic_utils import append_df_to_csv
+# from src.utils.get_masks import get_maskers, get_maskers1
 from src.datagen.spikes_data_new import SpikeTrainDataset 
 
 
@@ -312,7 +313,82 @@ class Params:
 
             for mask_method in mask_methods:
                 maskers.append(
-                    Masker(mask_method, top, balanced, seed, absolutize, aggregate_method))
+                    Masker1(mask_method, top, balanced, seed, absolutize, aggregate_method))
+        return maskers
+    
+
+    def get_maskers1(self, 
+                     explainer,
+                     include_legacy = False) -> List[Masker1]:
+        """
+        Hybrid Masker factory — supports legacy `self.argdict`-driven config
+        and new fixed maskers (cells/zero, cells/mean), plus optional legacy extras.
+
+        Args:
+            explainer: explainer instance (BaseExplainer or subclass)
+
+        Returns:
+            List[Masker]
+        """
+        maskers: List[Masker1] = []
+        seed = self.argdict["maskseed"]
+
+        # Legacy absolutize rule
+        absolutize = isinstance(
+            explainer,
+            (DeepLiftExplainer, IGExplainer, GradientShapExplainer)
+        )
+
+        # === Legacy loop ===
+        if (include_legacy):
+            for drop, aggregate_method in itertools.product(self.argdict["drop"], self.argdict["aggregate"]):
+                if drop == "bal":
+                    mask_methods = ["std"]
+                    top = self.argdict["top"]
+                    balanced = True
+                elif drop == "local":
+                    mask_methods = self.argdict["mask"]
+                    top = self.argdict["top"]
+                    balanced = False
+                else:
+                    mask_methods = self.argdict["mask"]
+                    top = self.argdict["toppc"]
+                    balanced = False
+
+                for mask_method in mask_methods:
+                    maskers.append(
+                        Masker1(mask_method, top, balanced, seed, absolutize, aggregate_method)
+                    )
+
+        # === New-style additions ===
+        # Only add if not already present (avoid duplicates if argdict already covered them)
+        new_maskers = [
+            Masker1(
+                mask_method="cells",
+                top=0.10,
+                balanced=False,
+                seed=seed,
+                absolutize=absolutize,
+                aggregate_method="mean",
+                substitution="zero"
+            ),
+            Masker1(
+                mask_method="cells",
+                top=0.10,
+                balanced=False,
+                seed=seed,
+                absolutize=absolutize,
+                aggregate_method="mean",
+                substitution="mean"
+            )
+        ]
+        for nm in new_maskers:
+            if not any(
+                (m.mask_method == nm.mask_method and getattr(m, "substitution", None) == getattr(nm, "substitution", None))
+                for m in maskers
+            ):
+                maskers.append(nm)
+
         return maskers
 
 
@@ -413,8 +489,15 @@ if __name__ == '__main__':
                     if isinstance(dataset, SimulatedData):
                         df = runner.evaluate_simulated_importance(argdict["aggregate"])
                     else:
-                        maskers = params.get_maskers(next(iter(runner.explainers.values())))
-                        df = runner.evaluate_performance_drop(maskers, use_last_time_only=True)
+                        maskers = params.get_maskers1(next(iter(runner.explainers.values())),
+                                                     include_legacy=False)
+
+                        df = runner.evaluate_performance_drop1(maskers, 
+                                                               use_last_time_only=True,
+                                                               k_values = tuple(np.arange(argdict["k_min"], 
+                                                                                         argdict["k_max"],
+                                                                                         argdict["k_step"],))
+                                                               )
                     log.info("Evaluating importance done.")
 
                     # Prepare the result dataframe to be saved.
