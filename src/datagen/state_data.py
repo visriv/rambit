@@ -11,7 +11,7 @@ correlated_feature = [0, 0] # Features that re correlated with the important fea
 
 imp_feature = [1,2]  # Feature that is always set as important
 scale = [[0.1, 1.6, 0.5],[-0.1, -0.4,-1.5]]  # Scaling factor for distribution mean in each state
-# trans_mat = np.array([[0.1,0.9],[0.1,0.9]])
+transition_matrix = np.array([[0.1,0.9],[0.1,0.9]])
 #print(trans_mat.shape)
 
 
@@ -39,23 +39,41 @@ def init_distribution_params():
     return mean, covariance
 
 
+# def next_state(previous_state, t):
+#     #params = [(abs(p-0.1)+timing_factor)/2. for p in previous_state]
+#     #print(params,previous_state)
+#     #params = [abs(p - 0.1) for p in previous_state]
+#     #print(previous_state)
+#     #params = [abs(p) for p in trans_mat[int(previous_state),1-int(previous_state)]]
+#     #params = trans_mat[int(previous_state),1-int(previous_state)]
+#     if previous_state==1:
+#         params = 0.95
+#     else:
+#         params = 0.05
+#     #params = 0.2
+#     #print('previous', previous_state)
+#     params = params-float(t/500) if params>0.8 else params
+#     #print('transition probability',params)
+#     next = np.random.binomial(1,params)
+#     return next
+
+
+
 def next_state(previous_state, t):
-    #params = [(abs(p-0.1)+timing_factor)/2. for p in previous_state]
-    #print(params,previous_state)
-    #params = [abs(p - 0.1) for p in previous_state]
-    #print(previous_state)
-    #params = [abs(p) for p in trans_mat[int(previous_state),1-int(previous_state)]]
-    #params = trans_mat[int(previous_state),1-int(previous_state)]
-    if previous_state==1:
-        params = 0.95
-    else:
-        params = 0.05
-    #params = 0.2
-    #print('previous', previous_state)
-    params = params-float(t/500) if params>0.8 else params
-    #print('transition probability',params)
-    next = np.random.binomial(1,params)
-    return next
+    p_vec = transition_matrix[previous_state]
+    # if previous_state == 0:
+    #     params = 0.9
+    # elif previous_state==1:
+    #     params = 0.9
+    # else:
+    #     params = 0.9
+    #
+    # params = params - float(t / 500) if params > 0.7 else params
+    # p_vec = np.zeros(STATE_NUM)
+    # p_vec[previous_state] = params
+    # p_vec[np.setdiff1d([0,1,2], previous_state)] = (1-params)/2.
+    next_st = np.random.choice([0, 1], p=p_vec)
+    return next_st
 
 
 #def state_decoder(state_one_hot):
@@ -166,6 +184,7 @@ def create_dataset(count, signal_len):
         importance_score.append(importance.T)
         states.append(state)
         label_logits.append(y_logits)
+        print(num)
     dataset = np.array(dataset)
     labels = np.array(labels)
     importance_score = np.array(importance_score)
@@ -177,27 +196,27 @@ def create_dataset(count, signal_len):
     #train_data_n, test_data_n = normalize(train_data, test_data)
     train_data_n= train_data
     test_data_n = test_data
-    if not os.path.exists('./data/simulated_data'):
-        os.mkdir('./data/simulated_data')
-    with open('./data/simulated_data/state_dataset_x_train.pkl', 'wb') as f:
+    if not os.path.exists('./data/simulated_state_data'):
+        os.mkdir('./data/simulated_state_data')
+    with open('./data/simulated_state_data/state_dataset_x_train.pkl', 'wb') as f:
         pickle.dump(train_data_n, f)
-    with open('./data/simulated_data/state_dataset_x_test.pkl', 'wb') as f:
+    with open('./data/simulated_state_data/state_dataset_x_test.pkl', 'wb') as f:
         pickle.dump(test_data_n, f)
-    with open('./data/simulated_data/state_dataset_y_train.pkl', 'wb') as f:
+    with open('./data/simulated_state_data/state_dataset_y_train.pkl', 'wb') as f:
         pickle.dump(labels[:n_train], f)
-    with open('./data/simulated_data/state_dataset_y_test.pkl', 'wb') as f:
+    with open('./data/simulated_state_data/state_dataset_y_test.pkl', 'wb') as f:
         pickle.dump(labels[n_train:], f)
-    with open('./data/simulated_data/state_dataset_importance_train.pkl', 'wb') as f:
+    with open('./data/simulated_state_data/state_dataset_importance_train.pkl', 'wb') as f:
         pickle.dump(importance_score[:n_train], f)
-    with open('./data/simulated_data/state_dataset_importance_test.pkl', 'wb') as f:
+    with open('./data/simulated_state_data/state_dataset_importance_test.pkl', 'wb') as f:
         pickle.dump(importance_score[n_train:], f)
-    with open('./data/simulated_data/state_dataset_logits_train.pkl', 'wb') as f:
+    with open('./data/simulated_state_data/state_dataset_logits_train.pkl', 'wb') as f:
         pickle.dump(label_logits[:n_train], f)
-    with open('./data/simulated_data/state_dataset_logits_test.pkl', 'wb') as f:
+    with open('./data/simulated_state_data/state_dataset_logits_test.pkl', 'wb') as f:
         pickle.dump(label_logits[n_train:], f)
-    with open('./data/simulated_data/state_dataset_states_train.pkl', 'wb') as f:
+    with open('./data/simulated_state_data/state_dataset_states_train.pkl', 'wb') as f:
         pickle.dump(states[:n_train], f)
-    with open('./data/simulated_data/state_dataset_states_test.pkl', 'wb') as f:
+    with open('./data/simulated_state_data/state_dataset_states_test.pkl', 'wb') as f:
         pickle.dump(states[n_train:], f)
 
 
@@ -208,7 +227,7 @@ if __name__ =='__main__':
     if not os.path.exists('./data'):
         os.mkdir('./data')
     parser = argparse.ArgumentParser()
-    parser.add_argument('--signal_len', type=int, default=100, help='Length of the signal to generate')
+    parser.add_argument('--signal_len', type=int, default=200, help='Length of the signal to generate')
     parser.add_argument('--signal_num', type=int, default=1000, help='Number of the signals to generate')
     parser.add_argument('--plot', action='store_true')
     args = parser.parse_args()

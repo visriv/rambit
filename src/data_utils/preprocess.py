@@ -4,10 +4,13 @@ import numpy as np
 import pandas as pd
 import sys, os
 from .utils_phy12 import *
+from sklearn.model_selection import train_test_split
+import warnings
 
 base_path = '/home/owq978/TimeSeriesXAI/PAMdata/PAMAP2data/'
 
-np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
+# np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
+warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 
 class PAMchunk:
     '''
@@ -437,6 +440,36 @@ def process_MITECG_for_WINIT(
     else:
         return all_chunk
 
+boiler_base_path = "data/Boiler"
+def process_Boiler_WinIT(device = None, base_path = boiler_base_path, normalize = False):
+    # x_full = torch.load(os.path.join(base_path, 'xfull.pt')).to(device).float()
+    # y_full = torch.load(os.path.join(base_path, 'yfull.pt')).to(device).long()
+    # sfull = torch.load(os.path.join(base_path, 'sfull.pt')).to(device).float()
+    train, val, test = torch.load(os.path.join(base_path, 'split=1.pt'))#.to(device).float()
+    # print('s', sfull.shape)
+    # print('xfull', x_full.shape)
+    # print('yfull', y_full.shape)
+    print('all len', len(all))
+    print('all[0].shape', all[0].shape)
+    print('all[1].shape', all[1].shape)
+    print('all[2].shape', all[2].shape)
+    # exit()
+
+    T_full = torch.zeros(36, x_full.shape[1]).to(device)
+    for i in range(T_full.shape[1]):
+        T_full[:,i] = torch.arange(36)
+
+    idx_train, idx_val, idx_test = torch.load(os.path.join(base_path, 'split={}.pt'.format(split_no)))
+
+    train_d = [x_full[:,:,:], T_full[:,:], y_full[:]]
+    val_d = [x_full[:,:,:], T_full[:,:], y_full[:]]
+    test_d = [x_full[:,:,:], T_full[:,:], y_full[:]]
+
+    stest = sfull[:,:,:]
+
+    return train_d, val_d, test_d, stest
+
+
 class EpiDataset(torch.utils.data.Dataset):
     def __init__(self, X, times, y, augment_negative = None):
         self.X = X # Shape: (T, N, d)
@@ -470,10 +503,6 @@ class EpiDataset(torch.utils.data.Dataset):
 
 epi_base_path = '/home/owq978/TimeSeriesXAI/ECGdata/Epilepsy'
 def process_Epilepsy(split_no = 1, device = None, base_path = epi_base_path):
-
-    # train = torch.load(os.path.join(loc, 'train.pt'))
-    # val = torch.load(os.path.join(loc, 'val.pt'))
-    # test = torch.load(os.path.join(loc, 'test.pt'))
 
     split_path = 'split_{}.npy'.format(split_no)
     idx_train, idx_val, idx_test = np.load(os.path.join(base_path, split_path), allow_pickle = True)
@@ -512,10 +541,7 @@ def process_Epilepsy(split_no = 1, device = None, base_path = epi_base_path):
     # print('time', Ptrain_time_tensor)
     print('X', Ptrain_tensor.shape)
     print('time', Ptrain_time_tensor.shape)
-    # print('time of 0', Ptrain_time_tensor.sum())
-    # print('train under 0', (Ptrain_tensor > 1e-10).sum() / Ptrain_tensor.shape[1])
-    #print('After s-permute', Ptrain_time_tensor.shape)
-    #exit()
+
     train_chunk = ECGchunk(Ptrain_tensor, None, Ptrain_time_tensor, ytrain_tensor, device = device)
     val_chunk = ECGchunk(Pval_tensor, None, Pval_time_tensor, yval_tensor, device = device)
     test_chunk = ECGchunk(Ptest_tensor, None, Ptest_time_tensor, ytest_tensor, device = device)
@@ -537,7 +563,6 @@ def decomposition_statistics(pool_layer, X):
 
     return d
 
-boiler_base_path = "/n/data1/hms/dbmi/zitnik/lab/users/owq978/TimeSeriesCBM/datasets/Boiler"
 
 def process_Boiler(split_no = 1, device = None, base_path = boiler_base_path, normalize = False):
     x_full = torch.load(os.path.join(base_path, 'xfull.pt')).to(device).float()
@@ -558,20 +583,12 @@ def process_Boiler(split_no = 1, device = None, base_path = boiler_base_path, no
     val_d = [x_full[:,idx_val,:], T_full[:,idx_val], y_full[idx_val]]
     test_d = [x_full[:,idx_test,:], T_full[:,idx_test], y_full[idx_test]]
 
-    # if normalize:
-    #     # Get mean, std of the whole sample from training data, apply to val, test:
-    #     mu = train_d[0].mean(dim=1).unsqueeze(1)
-    #     std = train_d[0].std(dim=1).unsqueeze(1).repeat(1,train_d[0].shape[1],1)
-    #     train_d[0] = (train_d[0] - mu.repeat(1,train_d[0].shape[1],1)) / std.repeat(1,train_d[0].shape[1],1)
-    #     val_d[0] = (val_d[0] - mu.repeat(1,val_d[0].shape[1],1)) / std.repeat(1,val_d[0].shape[1],1)
-    #     test_d[0] = (test_d[0] - mu.repeat(1,test_d[0].shape[1],1)) / std.repeat(1,test_d[0].shape[1],1)
-
     stest = sfull[:,idx_test,:]
 
     return train_d, val_d, test_d, stest
 
 
-def process_Boiler_OLD(split_no = 1, device = None, base_path = boiler_base_path):
+def process_Boiler_OLD(split_no = 1, train_ratio=0.8, device = None, base_path = boiler_base_path):
     data = pd.read_csv(os.path.join(base_path, 'full.csv')).values
     data = data[:, 2:]  #remove time step
 
@@ -607,12 +624,115 @@ def process_Boiler_OLD(split_no = 1, device = None, base_path = boiler_base_path
         T_full[:,i] = torch.arange(36)
 
     # Now split:
-    idx_train, idx_val, idx_test = torch.load(os.path.join(base_path, 'split={}.pt'.format(split_no)))
+    # idx_train, idx_val, idx_test = torch.load(os.path.join(base_path, 'split={}.pt'.format(split_no)))
 
-    x_full, T_full, y_full = x_full.to(device), T_full.to(device), y_full.to(device).long()
+    # x_full, T_full, y_full = x_full.to(device), T_full.to(device), y_full.to(device).long()
 
-    train_d = (x_full[:,idx_train,:], T_full[:,idx_train], y_full[idx_train])
-    val_d = (x_full[:,idx_val,:], T_full[:,idx_val], y_full[idx_val])
-    test_d = (x_full[:,idx_test,:], T_full[:,idx_test], y_full[idx_test])
+    # train_d = (x_full[:,idx_train,:], T_full[:,idx_train], y_full[idx_train])
+    # val_d = (x_full[:,idx_val,:], T_full[:,idx_val], y_full[idx_val])
+    # test_d = (x_full[:,idx_test,:], T_full[:,idx_test], y_full[idx_test])
 
+
+
+    x_cpu = x_full.cpu()
+    T_cpu = T_full.cpu()
+    y_cpu = y_full.cpu()
+
+    # 2) total number of samples
+    N = x_cpu.shape[1]
+    all_idx = np.arange(N)
+
+    # 3) split off the training set
+    idx_train, idx_temp = train_test_split(
+        all_idx,
+        train_size=train_ratio,
+        random_state=42,
+        shuffle=True
+    )
+
+    # 4) split the remainder equally into val/test
+    if len(idx_temp) > 0:
+        idx_val, idx_test = train_test_split(
+            idx_temp,
+            train_size=0.5,
+            random_state=42,
+            shuffle=True
+        )
+    else:
+        # edge case: no leftover samples
+        idx_val, idx_test = np.array([], dtype=int), np.array([], dtype=int)
+
+    # 5) build the three tuples exactly as before
+    #    note x_full shape is (T, N, F), so we index on dim=1
+    train_d = (
+        x_cpu[:, idx_train, :].to(device),
+        T_cpu[:, idx_train].to(device),
+        y_cpu[idx_train].to(device),
+    )
+    val_d = (
+        x_cpu[:, idx_val, :].to(device),
+        T_cpu[:, idx_val].to(device),
+        y_cpu[idx_val].to(device),
+    )
+    test_d = (
+        x_cpu[:, idx_test, :].to(device),
+        T_cpu[:, idx_test].to(device),
+        y_cpu[idx_test].to(device),
+    )
+
+    for split_name, split_d in [("Train", train_d), ("Val", val_d), ("Test", test_d)]:
+        y_split = split_d[2]                    # tensor of shape (n_samples,)
+        y_np    = y_split.detach().cpu().numpy() 
+        classes, counts = np.unique(y_np, return_counts=True)
+        dist = dict(zip(classes.tolist(), counts.tolist()))
+        print(f"{split_name} class distribution: {dist}")
+        
     return train_d, val_d, test_d
+
+
+spike_path = '/home/owq978/TimeSeriesXAI/datasets/Spike/'
+def process_Synth(split_no = 1, device = None, base_path = spike_path, regression = False,
+        label_noise = None):
+
+    split_path = os.path.join(base_path, 'split={}.pt'.format(split_no))
+    print("split_path：", split_path)
+
+    D = torch.load(split_path,  weights_only=False)
+
+    D['train_loader'].X = D['train_loader'].X.float().to(device)
+    D['train_loader'].times = D['train_loader'].times.float().to(device)
+    if regression:
+        D['train_loader'].y = D['train_loader'].y.float().to(device)
+    else:
+        D['train_loader'].y = D['train_loader'].y.long().to(device)
+
+    val = []
+    val.append(D['val'][0].float().to(device))
+    val.append(D['val'][1].float().to(device))
+    val.append(D['val'][2].long().to(device))
+    if regression:
+        val[-1] = val[-1].float()
+    D['val'] = tuple(val)
+
+    test = []
+    test.append(D['test'][0].float().to(device))
+    test.append(D['test'][1].float().to(device))
+    test.append(D['test'][2].long().to(device))
+    if regression:
+        test[-1] = test[-1].float()
+    D['test'] = tuple(test)
+
+    if label_noise is not None:
+        # Find some samples in training to switch labels:
+
+        to_flip = int(label_noise * D['train_loader'].y.shape[0])
+        to_flip = to_flip + 1 if (to_flip % 2 == 1) else to_flip # Add one if it isn't even
+
+        flips = torch.randperm(D['train_loader'].y.shape[0])[:to_flip]
+
+        max_label = D['train_loader'].y.max()
+
+        for i in flips:
+            D['train_loader'].y[i] = (D['train_loader'].y[i] + 1) % max_label
+
+    return D

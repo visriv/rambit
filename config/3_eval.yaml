@@ -1,23 +1,25 @@
 # config/main.yaml
 
 # ─── Dataset & Seeds ──────────────────────────────────────────────────────────
-data: state                     # choices: [spike, state, switch, pam, mitecg, mimic, data_l2x]
-delay: 0                        # choices: [0,1,2,3,4]
-explainer:                      # one or more of [fit, winit, ig, deeplift, fo, afo, gradientshap, dynamask]
-  # - biwinit
+data: mitecg                     # choices: [spike, state, switch, seqcombmv, pam, boiler, mitecg, mimic]                     
+explainer:                      # one or more of [fit, winit, biwinit, jimex,  ig, deeplift, fo, afo, gradientshap, dynamask]
+  - jimex
   - winit
-  # - deeplift
-  # - gradientshap
-  # - ig 
-  # - dynamask
+  - fit
+  # - biwinit
+  - deeplift
+  - gradientshap
+  - ig 
+  - dynamask
+  - fo
 cv:                             # cross‐validation folds to run
   - 0
-  # - 1
-  # - 2
-  # - 3
-  # - 4
-# train_ratio: 0.97
-testbs: 64                     # test batch size
+  - 1
+  - 2
+  - 3
+  - 4
+train_ratio: 0.99
+testbs: 32                   # test batch size
 dataseed: 1234                  # random state for data split
 datapath: "./data/"                  # path to raw data (null = use default)
 explainerseed: 2345             # random state for explainer
@@ -40,12 +42,12 @@ nondeterministic: false         # if true, PyTorch is non‐deterministic
 
 # ─── Base Model / Training Hyperparams ────────────────────────────────────────
 hiddensize: 200                 # hidden size of base model
-batchsize: 100                  # batch size of base model
+batchsize: 32                  # batch size of base model
 dropout: 0.5                    # dropout rate
 numlayers: 1                    # number of RNN layers (choices: [1,2,3])
 modeltype: "gru"                # architecture (choices: [conv, lstm, gru])
 lr: null                        # learning rate (null = use default inside code)
-
+epochs_classifier: 15
 # ─── Generator Settings ───────────────────────────────────────────────────────
 joint: false                    # if true, use joint generator
 conditional: false              # if true, use conditional generator
@@ -62,29 +64,29 @@ epoch: 200                      # # of Dynamask epochs
 lastonly: null                  # "True" or "False" or null
 
 # ─── WinIT / BiWinIT (/FIT) Settings ─────────────────────────────────────────────────
-window:                         # list of window sizes
+windows:                         # list of window sizes
   - 10
 winitmetric:                    # list of metrics (choices: [kl, js, pd])
   - pd
 usedatadist: true              # if true, sample masked features from data dist
 samples: -1                     # # of samples for masked features in WinIT
 height : 3
-mask_strategy:
-  # - upper_triangular
-  # - upper_triangular_wo_head
-  - box
-  - box_wo_head
+mask_strategy: upper_triangular  # - upper_triangular_wo_head # box # box_wo_head
 
 # ─── Evaluation Settings ─────────────────────────────────────────────────────
 maskseed: 43814                 # tie‐breaker seed for importance scores
-mask:                           # mask strategies (choices: [std, end])
-  - std
-  - end
-top: 50                         # # of top‐X observations to mask per series
-toppc: 0.05                     # fraction of top observations to mask
-drop:                           # masking strategies (choices: [local, global, bal])
-  - local
-  - global
-  - bal
+mask:   
+  - cells                        # mask strategies (choices: [cells, std, end])
+  # - std
+  # - end
+# top: 50                         # # of top‐X observations to mask per series
+# toppc: 0.05                     # fraction of top observations to mask
+k_step: 0.05
+k_min: 0.05
+k_max: 1.0
+# drop:                           # masking strategies (choices: [local, global, bal])
+#   - local
+#   - global
+#   - bal
 aggregate:                      # aggregation methods (choices: [mean, max, absmax])
   - mean

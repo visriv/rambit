@@ -9,19 +9,31 @@ from datetime import datetime
 from typing import Dict, Any, List
 
 import pandas as pd
-import torch.cuda
 from omegaconf import OmegaConf
 from argparse import Namespace 
 import os
-from src.dataloader import Mimic, MITECG, PAM, SimulatedSwitch, SimulatedState, SimulatedSpike, \
-    WinITDataset, SimulatedData, SimulatedL2X
+import numpy as np
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+import torch
+torch.use_deterministic_algorithms(True)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+
+import torch.cuda
+
+from src.dataloader import Mimic, Boiler, MITECG, PAM, SimulatedSwitch, SimulatedState, SimulatedSpike, \
+    WinITDataset, SimulatedData, SimulatedL2X, SeqCombMV
 from src.explainer.explainers import BaseExplainer, DeepLiftExplainer, IGExplainer, \
     GradientShapExplainer
-from src.explainer.masker import Masker
+from src.explainer.masker import Masker, Masker1
 from src.explanationrunner import ExplanationRunner
 from src.utils.basic_utils import append_df_to_csv
+# from src.utils.get_masks import get_maskers, get_maskers1
+from src.datagen.spikes_data_new import SpikeTrainDataset 
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1,2"
+
 class Params:
     def __init__(self, argdict: Dict[str, Any]):
         self.argdict = argdict
@@ -96,6 +108,10 @@ class Params:
             kwargs["testbs"] = 1000 if testbs == -1 else testbs
             return Mimic(**kwargs)
         
+        if (data == "boiler"):
+            kwargs["testbs"] = 1000 if testbs == -1 else testbs
+            return Boiler( **kwargs)
+        
         if (data == "mitecg") or (data == "mitecg1"):
             kwargs["testbs"] = 1000 if testbs == -1 else testbs
             return MITECG( **kwargs)
@@ -112,9 +128,13 @@ class Params:
             kwargs["testbs"] = 300 if testbs == -1 else testbs
             return SimulatedState(**kwargs)
         
-        if data == "data_l2x":
+        if data == "simulated_data_l2x":
             kwargs["testbs"] = 300 if testbs == -1 else testbs
             return SimulatedL2X(**kwargs)
+        
+        if data == "seqcombmv":
+            kwargs["testbs"] = 300 if testbs == -1 else testbs
+            return SeqCombMV(**kwargs)
 
         raise ValueError(f"Unknown data {data}")
 
@@ -127,13 +147,16 @@ class Params:
             if explainer == "dynamask":
                 explainer_dict = self._resolve_dynamask_explainer_dict()
                 all_explainer_dict[explainer] = [explainer_dict]
-            elif explainer in ["winit", "biwinit"]:
-                windows = self.argdict["window"]
+            elif explainer in ["winit", "biwinit", "jimex"]:
+                windows = self.argdict["windows"]
                 winit_metrics = self.argdict["winitmetric"]
                 
                 
                 winit_explainer_dict_list = []
                 generator_dict_list = []
+
+
+                
                 for window in windows:
                     explainer_dict_window = {
                         "window_size": window,
@@ -146,6 +169,7 @@ class Params:
                     if explainer == "biwinit":
                         height = self.argdict["height"]
                         mask_strategy = self.argdict["mask_strategy"]
+                        explainer_dict_window["height"] = height
                         explainer_dict_window["mask_strategy"] = mask_strategy
                     if nsamples != -1:
                         explainer_dict_window["n_samples"] = nsamples
@@ -228,7 +252,7 @@ class Params:
             elif model_type == "LSTM":
                 num_epochs = 30
         else:
-            num_epochs = 50
+            num_epochs = self.argdict['epochs_classifier']
         self._model_train_args = {"num_epochs": num_epochs, "lr": lr}
 
         base_out_path = pathlib.Path(self.argdict["outpath"])
@@ -292,7 +316,82 @@ class Params:
 
             for mask_method in mask_methods:
                 maskers.append(
-                    Masker(mask_method, top, balanced, seed, absolutize, aggregate_method))
+                    Masker1(mask_method, top, balanced, seed, absolutize, aggregate_method))
+        return maskers
+    
+
+    def get_maskers1(self, 
+                     explainer,
+                     include_legacy = False) -> List[Masker1]:
+        """
+        Hybrid Masker factory — supports legacy `self.argdict`-driven config
+        and new fixed maskers (cells/zero, cells/mean), plus optional legacy extras.
+
+        Args:
+            explainer: explainer instance (BaseExplainer or subclass)
+
+        Returns:
+            List[Masker]
+        """
+        maskers: List[Masker1] = []
+        seed = self.argdict["maskseed"]
+
+        # Legacy absolutize rule
+        absolutize = isinstance(
+            explainer,
+            (DeepLiftExplainer, IGExplainer, GradientShapExplainer)
+        )
+
+        # === Legacy loop ===
+        if (include_legacy):
+            for drop, aggregate_method in itertools.product(self.argdict["drop"], self.argdict["aggregate"]):
+                if drop == "bal":
+                    mask_methods = ["std"]
+                    top = self.argdict["top"]
+                    balanced = True
+                elif drop == "local":
+                    mask_methods = self.argdict["mask"]
+                    top = self.argdict["top"]
+                    balanced = False
+                else:
+                    mask_methods = self.argdict["mask"]
+                    top = self.argdict["toppc"]
+                    balanced = False
+
+                for mask_method in mask_methods:
+                    maskers.append(
+                        Masker1(mask_method, top, balanced, seed, absolutize, aggregate_method)
+                    )
+
+        # === New-style additions ===
+        # Only add if not already present (avoid duplicates if argdict already covered them)
+        new_maskers = [
+            Masker1(
+                mask_method="cells",
+                top=0.10,
+                balanced=False,
+                seed=seed,
+                absolutize=absolutize,
+                aggregate_method="mean",
+                substitution="zero"
+            ),
+            Masker1(
+                mask_method="cells",
+                top=0.10,
+                balanced=False,
+                seed=seed,
+                absolutize=absolutize,
+                aggregate_method="mean",
+                substitution="mean"
+            )
+        ]
+        for nm in new_maskers:
+            if not any(
+                (m.mask_method == nm.mask_method and getattr(m, "substitution", None) == getattr(nm, "substitution", None))
+                for m in maskers
+            ):
+                maskers.append(nm)
+
         return maskers
 
 
@@ -320,8 +419,8 @@ if __name__ == '__main__':
     result_file = argdict["resultfile"]
     epoch_gen = argdict["epoch_gen"]
     train_ratio = argdict.get("train_ratio") or 0.8
-    # device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cpu"
 
     # parse the arg
     params = Params(argdict)
@@ -348,7 +447,7 @@ if __name__ == '__main__':
         # torch.cuda.empty_cache()
 
         runner.init_model(**model_args)
-        use_all_times = not isinstance(dataset, (Mimic, MITECG, PAM))
+        use_all_times = not isinstance(dataset, (SeqCombMV, Mimic, Boiler, MITECG, PAM))
         if train_models:
             runner.train_model(**model_train_args, use_all_times=use_all_times)
         else:
@@ -367,8 +466,8 @@ if __name__ == '__main__':
                     runner.train_generators(num_epochs=epoch_gen)
             log.info("Training Generator Done.")
 
-        for explainer_name, explainer_dict_list in all_explainer_dict.items():
-            for explainer_dict in explainer_dict_list:
+        for explainer_name, explainer_list in all_explainer_dict.items():
+            for explainer_dict in explainer_list:
                 # generate feature importance
                 runner.clean_up(clean_importance=True, clean_explainer=True, clean_model=False)
                 runner.get_explainers(explainer_name, explainer_dict=explainer_dict)
@@ -378,7 +477,7 @@ if __name__ == '__main__':
                     log.info(f"Running Explanations..."
                              f"Data={dataset.get_name()}, Explainer={explainer_name}, Dict={explainer_dict}")
 
-                    runner.load_generators()
+                    # runner.load_generators()
                     runner.run_attributes()
                     runner.save_importance()
                     importances = runner.importances
@@ -393,8 +492,15 @@ if __name__ == '__main__':
                     if isinstance(dataset, SimulatedData):
                         df = runner.evaluate_simulated_importance(argdict["aggregate"])
                     else:
-                        maskers = params.get_maskers(next(iter(runner.explainers.values())))
-                        df = runner.evaluate_performance_drop(maskers, use_last_time_only=True)
+                        maskers = params.get_maskers1(next(iter(runner.explainers.values())),
+                                                     include_legacy=False)
+
+                        df = runner.evaluate_performance_drop1(maskers, 
+                                                               use_last_time_only=True,
+                                                               k_values = tuple(np.arange(argdict["k_min"], 
+                                                                                         argdict["k_max"],
+                                                                                         argdict["k_step"],))
+                                                               )
                     log.info("Evaluating importance done.")
 
                     # Prepare the result dataframe to be saved.

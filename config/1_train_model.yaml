@@ -1,7 +1,7 @@
 # config/main.yaml
 
 # ─── Dataset & Seeds ──────────────────────────────────────────────────────────
-data: pam                     # choices: [spike, state, switch, pam,  mitecg, mimic, data_l2x]
+data: seqcombmv                   # choices: [spike, state, switch, seqcombmv, pam, mitecg, boiler, mimic]
 delay: 0                        # choices: [0,1,2,3,4]
 explainer:                      # one or more of [fit, winit, ig, deeplift, fo, afo, gradientshap, dynamask]
   - winit
@@ -40,6 +40,7 @@ dropout: 0.5                    # dropout rate
 numlayers: 1                    # number of RNN layers (choices: [1,2,3])
 modeltype: "gru"                # architecture (choices: [conv, lstm, gru])
 lr: null                        # learning rate (null = use default inside code)
+epochs_classifier: 215
 
 # ─── Generator Settings ───────────────────────────────────────────────────────
 joint: false                    # if true, use joint generator
@@ -56,8 +57,8 @@ loss: null                      # one of [logloss, ce] or null
 epoch: 200                      # # of Dynamask epochs
 lastonly: null                  # "True" or "False" or null
 
-# ─── WinIT (and FIT) Settings ─────────────────────────────────────────────────
-window:                         # list of window sizes
+# ─── RaMbIT/WinIT/FIT  Settings ─────────────────────────────────────────────────
+windows:                         # list of window sizes
   - 10
 winitmetric:                    # list of metrics (choices: [kl, js, pd])
   - pd

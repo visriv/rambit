@@ -103,7 +103,7 @@ class OGWinITExplainer(BaseExplainer):
             return prob_distribution
         return p
 
-    def attribute(self, x):
+    def attribute(self, x, all_zero_cf=False):
         """
         Compute the WinIT attribution.
 
@@ -141,8 +141,7 @@ class OGWinITExplainer(BaseExplainer):
                     time_past = t - n
                     time_forward = n + 1
                     counterfactuals = self._generate_counterfactuals(
-                        time_forward, x[:, :, :time_past], x[:, :, time_past : t + 1]
-                    )
+                        time_forward, x[:, :, :time_past], x[:, :, time_past : t + 1], all_zero=all_zero_cf)
                     # counterfactual shape = (num_feat, num_samples, batch_size, time_forward)
                     for f in range(num_features):
                         # repeat input for num samples
@@ -253,8 +252,7 @@ class OGWinITExplainer(BaseExplainer):
         self.generators.load_generator()
 
     def _generate_counterfactuals(
-        self, time_forward: int, x_in: torch.Tensor, x_current: torch.Tensor = None
-    ) -> torch.Tensor:
+        self, time_forward: int, x_in: torch.Tensor, x_current: torch.Tensor = None, all_zero: bool = False) -> torch.Tensor:
         """
         Generate the counterfactuals.
 
@@ -267,7 +265,7 @@ class OGWinITExplainer(BaseExplainer):
                 The current Tensor if a conditional generator is used.
                 Shape = (batch_size, num_features, time_forward). If the generator is not
                 conditional, x_current is None.
-
+            all_zero: replace with a zero
         Returns:
             Counterfactual of shape (num_features, num_samples, batch_size, time_forward)
 
@@ -276,6 +274,13 @@ class OGWinITExplainer(BaseExplainer):
         # x_current shape (bs, num_feature, time_forward)
         # return counterfactuals shape (num_feature, num_samples, batchsize, time_forward)
         batch_size, _, num_time = x_in.shape
+
+        if all_zero:
+            counterfactuals = torch.zeros(
+                (self.num_features, self.num_samples, batch_size, time_forward), device=self.device
+            )
+            return counterfactuals
+
         if self.data_distribution is not None:
             # Random sample instead of using generator
             counterfactuals = torch.zeros(
