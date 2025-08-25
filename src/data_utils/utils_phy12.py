@@ -154,7 +154,7 @@ def getStats(P_tensor):
         vals_f = vals_f[vals_f > 0]
         mf[f] = np.mean(vals_f)
         stdf[f] = np.std(vals_f)
-        stdf[f] = np.max([stdf[f], eps])
+        stdf[f] = np.maximum(stdf[f], eps)
     return mf, stdf
 
 

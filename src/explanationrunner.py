@@ -279,11 +279,19 @@ class ExplanationRunner:
             for cv in self.dataset.cv_to_use():
                 train_loader = train_loaders[cv] if train_loaders is not None else None
                 self.explainers[cv] = JIMEx(
-                    device = self.device,
+                    self.dataset.feature_size,
+                    num_samples=explainer_dict.get("num_samples"),
                     num_masks = explainer_dict.get("num_masks"),
-                    window_size = explainer_dict.get("window_size"),
                     wt_bounds = explainer_dict.get("wt_bounds"),
-                    wd_bounds = explainer_dict.get("wd_bounds")
+                    wd_bounds = explainer_dict.get("wd_bounds"),
+                    device = self.device,
+                    metric = explainer_dict.get("metric"),
+                    window_size = explainer_dict.get("window_size"),
+                    train_loader = train_loader,
+                    random_state = explainer_dict.get("random_state"),
+                    all_zero_cf = explainer_dict.get("all_zero_cf")
+
+
                 )
 
         elif explainer_name == "fit":
@@ -733,15 +741,24 @@ class ExplanationRunner:
     def _evaluate_importance_with_gt(
         self, ground_truth_importance: np.ndarray, absolutize: bool, aggregate_methods: List[str]
     ):
+        print("ground_truth_importance.shape:", ground_truth_importance.shape)
         ground_truth_importance = ground_truth_importance[:, :, 1:].reshape(
             len(ground_truth_importance), -1
         )
+        print("ground_truth_importance.shape:", ground_truth_importance.shape)
+
         dfs = {}
         for aggregate_method in aggregate_methods:
             df = pd.DataFrame()
             for cv, importance_unaggregated in self.importances.items():
+
                 importance_scores = aggregate_scores(importance_unaggregated, aggregate_method)
+                print("importance_scores.shape:", importance_scores.shape)
                 importance_scores = importance_scores[:, :, 1:].reshape(len(importance_scores), -1)
+                print("importance_scores.shape:", importance_scores.shape)
+                
+                
+
 
                 # compute mean ranks
                 ranks = rankdata(-importance_scores, axis=1)
@@ -753,48 +770,108 @@ class ExplanationRunner:
                 mean_rank_min = np.mean(gt_ranks_min)
 
                 gt_score = ground_truth_importance.flatten()
+                print("gt_score.shape:", gt_score.shape)
+
                 explainer_score = importance_scores.flatten()
+                print("explainer_score.shape:", explainer_score.shape)
 
                 if absolutize:
                     explainer_score = np.abs(explainer_score)
 
                 if np.any(np.isnan(explainer_score)):
                     self.log.warning("NaNs appear in explainer scores!")
-
                 explainer_score = np.nan_to_num(explainer_score)
-                auc_score = metrics.roc_auc_score(gt_score, explainer_score)
-                AP_score = metrics.average_precision_score(gt_score, explainer_score)
-                prec_score, rec_score, thresholds = metrics.precision_recall_curve(
-                    gt_score, explainer_score
-                )
-                auprc_score = metrics.auc(rec_score, prec_score) if rec_score.shape[0] > 1 else -1
 
-                pos_ratio = ground_truth_importance.sum() / len(ground_truth_importance)
 
-                # ---------- AUP & AUR (integrate over fraction selected) ----------
-                # Sort by explainer score descending; sweep a threshold to include top-k features
-                order = np.argsort(-explainer_score, kind="mergesort")
-                gt_sorted = gt_score[order]  # 1 if truly important, else 0
+                binary_case = (gt_score.ndim == 1)
 
-                n = gt_sorted.size
-                P = gt_sorted.sum()  # number of truly important features
+                if binary_case:
+                    auc_score = metrics.roc_auc_score(gt_score, explainer_score)
+                    AP_score = metrics.average_precision_score(gt_score, explainer_score)
+                    prec_score, rec_score, thresholds = metrics.precision_recall_curve(
+                        gt_score, explainer_score
+                    )
+                    auprc_score = metrics.auc(rec_score, prec_score) if rec_score.shape[0] > 1 else -1
 
-                if n > 0:
-                    k = np.arange(1, n + 1)                # prefix lengths
-                    x = k / n                               # fraction selected (0→1)
-                    cum_tp = np.cumsum(gt_sorted)
+                    pos_ratio = ground_truth_importance.sum() / len(ground_truth_importance)
 
-                    # precision@k and recall@k for each prefix
-                    precision_k = cum_tp / k
-                    recall_k = (cum_tp / P) if P > 0 else np.zeros_like(cum_tp, dtype=float)
+                    # ---------- AUP & AUR (integrate over fraction selected) ----------
+                    # Sort by explainer score descending; sweep a threshold to include top-k features
+                    order = np.argsort(-explainer_score, kind="mergesort")
+                    gt_sorted = gt_score[order]  # 1 if truly important, else 0
 
-                    # numeric integration over x (fraction selected)
-                    # trapezoidal rule; gives scalar areas in [0,1]
-                    AUP = float(np.trapz(precision_k, x))
-                    AUR = float(np.trapz(recall_k, x))
+                    n = gt_sorted.size
+                    P = gt_sorted.sum()  # number of truly important features
+
+                    if n > 0:
+                        k = np.arange(1, n + 1)                # prefix lengths
+                        x = k / n                               # fraction selected (0→1)
+                        cum_tp = np.cumsum(gt_sorted)
+
+                        # precision@k and recall@k for each prefix
+                        precision_k = cum_tp / k
+                        recall_k = (cum_tp / P) if P > 0 else np.zeros_like(cum_tp, dtype=float)
+
+                        # numeric integration over x (fraction selected)
+                        # trapezoidal rule; gives scalar areas in [0,1]
+                        AUP = float(np.trapz(precision_k, x))
+                        AUR = float(np.trapz(recall_k, x))
+                    else:
+                        AUP, AUR = 0.0, 0.0
+                
+
                 else:
-                    AUP, AUR = 0.0, 0.0
-                    
+                        # ---------------------- MULTICLASS (macro) ----------------------
+                        # Expect shapes (N, C)
+                        if explainer_score.ndim == 1:
+                            raise ValueError("Multiclass detected (gt_score is 2D) but explainer_score is 1D.")
+                        if gt_score.shape != explainer_score.shape:
+                            raise ValueError(f"gt_score shape {gt_score.shape} != explainer_score shape {explainer_score.shape}")
+
+                        # AUROC / AUPRC macro across classes
+                        auc_score = metrics.roc_auc_score(gt_score, explainer_score, average='macro', multi_class='ovr')
+                        AP_score = metrics.average_precision_score(gt_score, explainer_score, average='macro')
+
+                        # AUPRC curve needs per-class handling; macro average areas
+                        auprc_vals = []
+                        for c in range(gt_score.shape[1]):
+                            prec_c, rec_c, _ = metrics.precision_recall_curve(gt_score[:, c], explainer_score[:, c])
+                            auprc_vals.append(metrics.auc(rec_c, prec_c) if rec_c.shape[0] > 1 else -1)
+                        auprc_score = float(np.mean(auprc_vals)) if len(auprc_vals) else -1.0
+
+                        # Pos ratio macro (mean positives per class)
+                        pos_ratio = float(np.mean(gt_score.mean(axis=0)))
+
+                        # AUP & AUR: compute per class using your same integration, then macro average
+                        AUP_list, AUR_list = [], []
+                        for c in range(gt_score.shape[1]):
+                            gs = gt_score[:, c].astype(float)
+                            es = explainer_score[:, c].astype(float)
+
+                            order = np.argsort(-es, kind="mergesort")
+                            gs_sorted = gs[order]
+
+                            n = gs_sorted.size
+                            P = gs_sorted.sum()
+
+                            if n > 0:
+                                k = np.arange(1, n + 1)
+                                x = k / n
+                                cum_tp = np.cumsum(gs_sorted)
+                                precision_k = cum_tp / k
+                                recall_k = (cum_tp / P) if P > 0 else np.zeros_like(cum_tp, dtype=float)
+                                AUP_list.append(float(np.trapz(precision_k, x)))
+                                AUR_list.append(float(np.trapz(recall_k, x)))
+                            else:
+                                AUP_list.append(0.0)
+                                AUR_list.append(0.0)
+
+                        AUP = float(np.mean(AUP_list))
+                        AUR = float(np.mean(AUR_list))
+                
+                
+                
+                
                 result = {
                     "AUROC": auc_score,
                     "AP": AP_score,

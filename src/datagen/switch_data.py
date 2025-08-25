@@ -271,7 +271,7 @@ def create_dataset(count, signal_len):
             print(num, count)
     dataset = np.array(dataset).transpose(0,2,1)
     labels = np.array(labels)
-    importance_score = np.array(importance_score).transpose(0,2,1)
+    importance_score = np.array(importance_score)#.transpose(0,2,1)
     states = np.array(states)
     label_logits = np.array(label_logits)
     n_train = int(len(dataset) * 0.8)

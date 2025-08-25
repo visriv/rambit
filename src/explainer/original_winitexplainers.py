@@ -330,8 +330,8 @@ class OGWinITExplainer(BaseExplainer):
 
     def get_name(self):
         builder = ["winit", "window", str(self.window_size)]
-        if self.num_samples != 3:
-            builder.extend(["samples", str(self.num_samples)])
+  
+        builder.extend(["samples", str(self.num_samples)])
         if self.conditional:
             builder.append("cond")
         if self.joint:

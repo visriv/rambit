@@ -2,18 +2,25 @@ import torch
 from torch.distributions import Bernoulli
 from typing import Tuple, Optional
 from src.explainer.explainers import BaseExplainer
-
+from torch.utils.data import DataLoader
+import numpy as np
+from tqdm import tqdm
+from itertools import product
 
 class JIMEx(BaseExplainer):
     def __init__(
         self,
+        num_features: int,
+        num_samples: int = 3,
         num_masks: int = 3,
         wt_bounds: Tuple[int, int] = (1, 3),
         wd_bounds: Tuple[int, int] = (1, 3),
         device: Optional[torch.device] = None,
         metric: str = "pd",
-        window_size: int = 10
-
+        window_size: int = 10,
+        train_loader: DataLoader  = None,
+        random_state: int  = None,
+        all_zero_cf: bool = False
     ):
         """
         Args:
@@ -30,7 +37,18 @@ class JIMEx(BaseExplainer):
         self.device = device or next(self.model.parameters()).device
         self.metric = metric
         self.window_size = window_size
+        self.num_samples = num_samples
+        self.num_features = num_features
 
+
+        if train_loader is not None:
+            self.data_distribution = (
+                torch.stack([x[0] for x in train_loader.dataset]).detach().cpu().numpy()
+            )
+        else:
+            self.data_distribution = None
+        self.rng = np.random.default_rng(random_state)
+        self.all_zero_cf = all_zero_cf
     def _model_predict(self, x):
         """
         Run predict on base model. If the output is binary, i.e. num_class = 1, we will make it
@@ -49,9 +67,9 @@ class JIMEx(BaseExplainer):
         B, D, T = X.shape
 
         I_all = torch.zeros((B, T, D), device=self.device, dtype=X.dtype)
-        for t in range(T):
-            for d in range(D):
-                I_all[:, t, d] = self.attribute_one_cell(X, t, d)  # returns (B,)
+        for t, d in tqdm(product(range(T), range(D)), total=T*D):
+            I_all[:, t, d] = self.attribute_one_cell(X, t, d, self.all_zero_cf)
+            # print("in JImex, one cell attributed, the 5 sample values of this cell are:", (t,d), I_all[:5, t, d] )
         return I_all.permute(0,2,1).detach().cpu().numpy() # return in B x D x T shape
 
 
@@ -60,26 +78,18 @@ class JIMEx(BaseExplainer):
         self,
         X: torch.Tensor,
         source_t: int,
-        source_d: int
+        source_d: int,
+        all_zero_cf: bool
     ) -> torch.Tensor:
         """
         Compute JIMEx attribution for cell (source_t, source_d) over a batch.
         Returns a (B,) tensor with one score per item in the batch.
         """
-        DEBUG = False  # set False to silence prints
 
         X = X.to(self.device)
         B, D, T = X.shape
 
-        if DEBUG:
-            try:
-                print(f"[JIMEx] X shape BxDxT={X.shape}, device={self.device}")
-                print(f"[JIMEx] source: t={source_t}, d={source_d}")
-                print(f"[JIMEx] L={self.L}, window_size={self.window_size}, "
-                    f"Wt∈[{self.Wt_min},{self.Wt_max}], Wd∈[{self.Wd_min},{self.Wd_max}]")
-            except Exception:
-                # Attributes may not exist; keep running silently.
-                pass
+
 
         # accumulate Δ per-source cell, per sample B
         I_cell = torch.zeros(B, device=self.device, dtype=X.dtype)
@@ -118,106 +128,98 @@ class JIMEx(BaseExplainer):
             M1 = M.clone()
             M1[:, source_d, source_t] = 0.0
 
-            if DEBUG and _ < 2:  # print details for first 2 masks
-                zeros_M = (M == 0).sum().item()
-                try:
-                    print(f"[mask {_}] Wt={Wt}, Wd={Wd}, t0={t0}, d0={d0}, "
-                        f"t_end={t0+Wt-1}, d_end={d0+Wd-1}")
-                    print(f"[mask {_}] zeros in M: {zeros_M}/{M.numel()}")
-                    print(f"[mask {_}] M1(src)={float(M1[0, source_d, source_t])}, "
-                        f"M2(src)={float(M2[0, source_d, source_t])}")
-                except Exception:
-                    pass
-
-                # local peek around the source cell: rows=d, cols=t
-                t_lo = max(0, t0-1)
-                t_hi = min(T, t0 + Wt + 1)
-                d_lo = max(0, d0-1)
-                d_hi = min(D, d0 + Wd + 1)
-
-                local_M1 = M1[0, d_lo:d_hi, t_lo:t_hi].detach().to("cpu")
-                local_M2 = M2[0, d_lo:d_hi, t_lo:t_hi].detach().to("cpu")
-
-                # convert to int for cleaner view
-                if DEBUG:
-                    print(f"[mask {_}] M1 local[D {d_lo}:{d_hi}, T {t_lo}:{t_hi}] "
-                        f"(rows=d, cols=t):\n{local_M1.int()}")
-                    print(f"[mask {_}] M2 local[D {d_lo}:{d_hi}, T {t_lo}:{t_hi}] "
-                        f"(rows=d, cols=t):\n{local_M2.int()}")
+           
 
             all_M1.append(M1)
             all_M2.append(M2)
             t_max.append(t0 + Wt)
+
+
+        # compute and use the cached CF tensor
+        CF = self._compute_cf(B, T-1, X, all_zero_cf) # output: ( num_samples, B, D T) 
+        num_samples = CF.shape[0]
 
         # Now iterate over masks and obtain importance score based on prediction at t_target = t_max + w
         for l in range(self.L):
             I_cell_this_mask = 0
             count_valid_windows = 0
 
-            if DEBUG and l < 2:
-                t_first = t_max[l]
-                t_last = min(T - 1, t_max[l] + self.window_size - 1)
-                print(f"[score mask {l}] t_max={t_max[l]}, "
-                    f"t_target range ≈ [{t_first}..{t_last}]")
+
+            t_first = t_max[l]
+            t_last = min(T - 1, t_max[l] + self.window_size - 1)
 
             for w in range(1, self.window_size + 1):
                 t_target = t_max[l] + w - 1
                 if (t_target >= T):
                     continue
+                
 
                 count_valid_windows += 1
-                # perturbed inputs
-                X2 = X * all_M2[l]  # (B, D, T)
-                X1 = X * all_M1[l]
+                CF_sbdt = CF.to(X.dtype)  # (S, B, D, T)
 
-                # model predictions (B,)
+                # Broadcast X and masks to (S, B, D, T) WITHOUT merging S and B
+                # X: (B, D, T) -> (S, B, D, T)
+                X_sbdt = X.unsqueeze(0).expand(num_samples, -1, -1, -1)
+
+                # all_M1[l] / all_M2[l] are (1, D, T); make them (num_samples, B, D, T) by broadcast
+                M1_sbdt = all_M1[l].unsqueeze(0)#.unsqueeze(1)  # (1, 1, D, T), will bcast to (num_samples, B, D, T)
+                M2_sbdt = all_M2[l].unsqueeze(0)#.unsqueeze(1)
+
+                # print("num_samples", num_samples )
+                # print("X_sbdt.shape:", X_sbdt.shape )
+                # print("M1_sbdt.shape:", M1_sbdt.shape )
+                # print("M2_sbdt.shape:", M2_sbdt.shape )
+                # Construct masked inputs at full length T; we'll slice in time below
+                X1_sbdt = X_sbdt * M1_sbdt + (1.0 - M1_sbdt) * CF_sbdt  # (num_samples, B, D, T)
+                X2_sbdt = X_sbdt * M2_sbdt + (1.0 - M2_sbdt) * CF_sbdt  # (num_samples, B, D, T)
+
+                # ---- model predictions ----
                 with torch.no_grad():
-                    f_orig = self._model_predict(X[:, :, 0:t_target + 1])   # shape [B]
-                    f_masked1 = self._model_predict(X1[:, :, 0:t_target + 1])  # (B,)
-                    f_masked2 = self._model_predict(X2[:, :, 0:t_target + 1])  # (B,)
+                    # f_orig is the same across samples (no CF), shape (B,)
+                    f_orig = self._model_predict(X[:, :, 0:t_target + 1])  # (B,)
 
-                # metric per-sample (B,) then Δ
-                i1 = self._compute_metric(f_orig, f_masked1)  # (B,)
-                i2 = self._compute_metric(f_orig, f_masked2)  # (B,)
+                    # Evaluate per-sample so we don't merge S and B
+                    f_masked1_list = []
+                    f_masked2_list = []
+                    for s in range(num_samples):
+                        f_masked1_list.append(
+                            self._model_predict(X1_sbdt[s, :, :, 0:t_target + 1])  # (B,)
+                        )
+                        f_masked2_list.append(
+                            self._model_predict(X2_sbdt[s, :, :, 0:t_target + 1])  # (B,)
+                        )
 
-                I_cell_this_mask += (i1 - i2)
+                    # Stack to (S, B)
+                    f_masked1 = torch.stack(f_masked1_list, dim=0)
+                    f_masked2 = torch.stack(f_masked2_list, dim=0)
 
-                if DEBUG and l < 2 and (w == 1 or w == self.window_size or t_target == T - 1):
-                    # show summary stats only (means) to avoid spam
-                    try:
-                        print(f"[score mask {l}] w={w}, t_target={t_target}, "
-                            f"mean(i1)={float(i1.mean()):.6f}, mean(i2)={float(i2.mean()):.6f}, "
-                            f"mean(Δ)={float((i1 - i2).mean()):.6f}")
-                    except Exception:
-                        pass
+                # ---- metrics per sample ----
+                # compute_metric expects two (B,) tensors; map it over num_samples without merging dims
+                i1_list = []
+                i2_list = []
+                for s in range(num_samples):
+                    i1_list.append(self._compute_metric(f_orig, f_masked1[s]))  # (B,)
+                    i2_list.append(self._compute_metric(f_orig, f_masked2[s]))  # (B,)
+
+                i1 = torch.stack(i1_list, dim=0)  # (num_samples, B)
+                i2 = torch.stack(i2_list, dim=0)  # (num_samples, B)
+
+                # Δ per sample, then mean over the num_samples dim num_samples -> (B,)
+                delta_mean = (i1 - i2).mean(dim=0)  # (B,)
+
+                I_cell_this_mask += delta_mean
+
 
             if (count_valid_windows == 0):
                 I_cell += 0.0
-                if DEBUG and l < 2:
-                    print(f"[score mask {l}] no valid windows (t_target≥T).")
+              
             else:
-                I_cell += I_cell_this_mask / float(count_valid_windows)
-                if DEBUG and l < 2:
-                    try:
-                        mean_mask_contrib = float((I_cell_this_mask / float(count_valid_windows)).mean())
-                        print(f"[score mask {l}] averaged over {count_valid_windows} windows, "
-                            f"mean contribution={mean_mask_contrib:.6f}")
-                    except Exception:
-                        pass
+                I_cell += ( I_cell_this_mask / float(count_valid_windows))
 
         # average over masks → (B,)
         I_cell = I_cell / float(self.L)
 
-        if DEBUG:
-            try:
-                print(f"[JIMEx] Final I_cell shape: {tuple(I_cell.shape)} "
-                    f"(B={B}); mean={float(I_cell.mean()):.6f}, "
-                    f"min={float(I_cell.min()):.6f}, max={float(I_cell.max()):.6f}")
-                # show a few samples (at most first 5)
-                max_show = min(5, B)
-                print(f"[JIMEx] I_cell[:{max_show}]: {I_cell[:max_show].detach().to('cpu')}")
-            except Exception:
-                pass
+       
 
         return I_cell
 
@@ -247,10 +249,36 @@ class JIMEx(BaseExplainer):
             return torch.sum(diff, -1)
         raise Exception(f"unknown metric. {self.metric}")
     
+
+    def _compute_cf(self, B, t, sample_x, all_zero_cf):
+        # Compute and cache a CF matrix to replace in the mask later
+        ## Sample counterfactuals for every (f, s, b, t)
+        batch_size = B
+        CF = torch.empty((self.num_samples, batch_size, self.num_features, t+1), device=self.device, dtype=sample_x.dtype)
+        # N_hist = self.data_distribution.shape[0] * self.data_distribution.shape[2]  # N_samples × T
+        if (all_zero_cf):
+            return CF
+        
+
+        for f in range(self.num_features):
+            # flatten historical values for feature f
+            vals = self.data_distribution[:, f, :].reshape(-1)  # shape (N_hist,)
+            # draw S×B×T values
+            draws = self.rng.choice(vals, size=(self.num_samples, batch_size, t+1))
+            CF[:, :, f, :] = torch.from_numpy(draws).to(self.device)
+
+        ## CF generation complete
+        return CF
+    
+
     def get_name(self):
-        builder = ["jimex", "num_samples", str(self.L), "window_size", str(self.window_size)]
+        builder = ["jimex", "num_masks", str(self.L), 
+                   "window_size", str(self.window_size),
+                   "num_samples", str(self.num_samples),
+                   "wt_bounds", "_".join([str(self.Wt_min), str(self.Wt_max)])
+                   ]
 
         builder.append(self.metric)
-        # if self.data_distribution is not None:
-        #     builder.append("usedatadist")
+        if self.data_distribution is not None:
+            builder.append("usedatadist")
         return "_".join(builder)

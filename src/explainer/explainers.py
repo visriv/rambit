@@ -161,9 +161,9 @@ class FOExplainer(BaseExplainer):
     https://github.com/sanatonek/time_series_explainability/blob/master/TSX/explainers.py
     """
 
-    def __init__(self, device, n_samples=10, **kwargs):
+    def __init__(self, device, num_samples=10, **kwargs):
         super().__init__(device)
-        self.n_samples = n_samples
+        self.num_samples = num_samples
         if len(kwargs) > 0:
             log = logging.getLogger(FOExplainer.__name__)
             log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
@@ -181,7 +181,7 @@ class FOExplainer(BaseExplainer):
             for i in range(n_features):
                 x_hat = x[:, :, 0 : t + 1].clone()
                 kl_all = []
-                for _ in range(self.n_samples):
+                for _ in range(self.num_samples):
                     x_hat[:, i, t] = torch.Tensor(np.random.uniform(-3, +3, size=(len(x),)))
                     y_hat_t = self.base_model.predict(x_hat, return_all=False)
                     kl = torch.abs(y_hat_t - p_y_t)
@@ -191,8 +191,8 @@ class FOExplainer(BaseExplainer):
         return score
 
     def get_name(self):
-        if self.n_samples != 10:
-            return f"fo_sample_{self.n_samples}"
+        if self.num_samples != 10:
+            return f"fo_sample_{self.num_samples}"
         return "fo"
 
 
@@ -203,11 +203,11 @@ class AFOExplainer(BaseExplainer):
     https://github.com/sanatonek/time_series_explainability/blob/master/TSX/explainers.py
     """
 
-    def __init__(self, device, train_loader, n_samples=10, **kwargs):
+    def __init__(self, device, train_loader, num_samples=10, **kwargs):
         super().__init__(device)
         trainset = list(train_loader.dataset)
         self.data_distribution = torch.stack([x[0] for x in trainset])
-        self.n_samples = n_samples
+        self.num_samples = num_samples
         if len(kwargs) > 0:
             log = logging.getLogger(AFOExplainer.__name__)
             log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
@@ -226,7 +226,7 @@ class AFOExplainer(BaseExplainer):
                 feature_dist = np.array(self.data_distribution[:, i, :]).reshape(-1)
                 x_hat = x[:, :, 0 : t + 1].clone()
                 kl_all = []
-                for _ in range(self.n_samples):
+                for _ in range(self.num_samples):
                     x_hat[:, i, t] = torch.Tensor(
                         np.random.choice(feature_dist, size=(len(x),))
                     ).to(self.device)
@@ -238,8 +238,8 @@ class AFOExplainer(BaseExplainer):
         return score
 
     def get_name(self):
-        if self.n_samples != 10:
-            return f"afo_sample_{self.n_samples}"
+        if self.num_samples != 10:
+            return f"afo_sample_{self.num_samples}"
         return "afo"
 
 

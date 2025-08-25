@@ -1,24 +1,23 @@
 # config/main.yaml
 
 # ─── Dataset & Seeds ──────────────────────────────────────────────────────────
-data: mitecg                     # choices: [spike, state, switch, seqcombmv, pam, boiler, mitecg, mimic]                     
+data: boiler                     # choices: [spike, state, switch, seqcombmv, pam, boiler, mitecg, mimic, water, wafer, epilepsy]                     
 explainer:                      # one or more of [fit, winit, biwinit, jimex,  ig, deeplift, fo, afo, gradientshap, dynamask]
+  # - deeplift
+  # - gradientshap
+  # - ig 
+  # - dynamask
+  # - fo
+  # - fit
+  # - winit
   - jimex
-  - winit
-  - fit
-  # - biwinit
-  - deeplift
-  - gradientshap
-  - ig 
-  - dynamask
-  - fo
-cv:                             # cross‐validation folds to run
-  - 0
-  - 1
-  - 2
-  - 3
-  - 4
-train_ratio: 0.99
+cv:                             # cross‐validation folds to run 
+  - 0                           # works only one at a time
+  # - 1
+  # - 2
+  # - 3
+  # - 4
+train_ratio: 0.97
 testbs: 32                   # test batch size
 dataseed: 1234                  # random state for data split
 datapath: "./data/"                  # path to raw data (null = use default)
@@ -33,10 +32,10 @@ resultfile: "results.csv"       # name of CSV for final results
 logfile: null                   # if non‐null, name of individual run’s log file
 
 # ─── Run Modes ────────────────────────────────────────────────────────────────
-train: false                    # if true, run model training
-traingen: false                 # if true, run generator training
-skipexplain: false              # if true, skip explanation generation
-eval: true                     # if true, run feature‐importance evaluation
+train: False                    # if true, run model training
+traingen: False                 # if true, run generator training
+do_explain: True              # if true, skip explanation generation
+eval_explain: True                     # if true, run feature‐importance evaluation
 loglevel: info                  # one of [warning, info, error, debug]
 nondeterministic: false         # if true, PyTorch is non‐deterministic
 
@@ -63,15 +62,22 @@ loss: null                      # one of [logloss, ce] or null
 epoch: 200                      # # of Dynamask epochs
 lastonly: null                  # "True" or "False" or null
 
-# ─── WinIT / BiWinIT (/FIT) Settings ─────────────────────────────────────────────────
-windows:                         # list of window sizes
-  - 10
+# ─── Jimex/WinIT/FIT  Settings ─────────────────────────────────────────────────
+windows:                         # list of window sizes (for target prediction)
+  # - 10
+  - 20
+  - 30
 winitmetric:                    # list of metrics (choices: [kl, js, pd])
   - pd
-usedatadist: true              # if true, sample masked features from data dist
-samples: -1                     # # of samples for masked features in WinIT
-height : 3
-mask_strategy: upper_triangular  # - upper_triangular_wo_head # box # box_wo_head
+usedatadist: True              # if true, sample masked features from data dist (during the Jimex algo for CF)
+all_zero_cf: False             # either of this is or above is True
+num_samples: 3                     # # of samples per mask in WinIT
+num_masks:                      # number of masks (L)
+- 3
+- 5
+- 10
+wt_bounds: [1, 4]
+wd_bounds: [1, 4]
 
 # ─── Evaluation Settings ─────────────────────────────────────────────────────
 maskseed: 43814                 # tie‐breaker seed for importance scores
@@ -79,14 +85,10 @@ mask:
   - cells                        # mask strategies (choices: [cells, std, end])
   # - std
   # - end
-# top: 50                         # # of top‐X observations to mask per series
-# toppc: 0.05                     # fraction of top observations to mask
+
 k_step: 0.05
 k_min: 0.05
 k_max: 1.0
-# drop:                           # masking strategies (choices: [local, global, bal])
-#   - local
-#   - global
-#   - bal
 aggregate:                      # aggregation methods (choices: [mean, max, absmax])
   - mean
+

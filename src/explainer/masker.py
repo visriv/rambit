@@ -316,7 +316,7 @@ class Masker1:
     def __init__(
         self,
         mask_method: str,
-        top: int | float,
+        # top: int | float,
         balanced: bool,
         seed: int,
         absolutize: bool,
@@ -326,17 +326,17 @@ class Masker1:
         """
         Args:
             mask_method: "cells" (NEW), or legacy: "end", "std", "end_fit".
-            top: if int -> top-k cells per sample; if float in (0,1] -> top-(k*100)% cells (per sample for 'cells', global for legacy global mode)
+            
             balanced, seed, absolutize, aggregate_method: (unchanged)
             substitution: how to fill masked cells: 'zero' or 'mean' (per-sample, per-feature temporal mean)
         """
         if mask_method not in ["cells", "end", "std", "end_fit"]:
             raise NotImplementedError(f"Mask method {mask_method} unrecognized")
         self.mask_method = mask_method
-        self.top = top
+
         self.balanced = balanced
         self.seed = seed
-        self.local = isinstance(top, int)
+        # self.local = isinstance(top, int)
         self.absolutize = absolutize
         self.aggregate_method = aggregate_method
         self.substitution = substitution.lower()
@@ -427,7 +427,7 @@ class Masker1:
 
             if self.mask_method == "cells":
                 # ----- simple cell-wise masking -----
-                kk = self.top if k is None else k
+                kk = k
                 sel = self._select_cells_per_sample(imp, kk, direction=direction)  # True for selected cells
 
                 # Baselines
