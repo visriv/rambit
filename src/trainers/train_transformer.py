@@ -209,6 +209,10 @@ def train(
             if auc > max_val_auc:
                 max_val_auc = auc
                 best_epoch = epoch
+                best_auprc = auprc
+                best_precision = precision
+                best_recall = recall
+                best_f1 = f1
                 torch.save(model.state_dict(), save_path)
 
         if (epoch + 1) % print_freq == 0:  # Print progress:
@@ -237,6 +241,20 @@ def train(
     if save_path == 'tmp.pt':
         os.remove('tmp.pt') # Remove temporarily stored file
 
-    print('Best AUC achieved at Epoch = {}, AUC = {:.4f}'.format(best_epoch, max_val_auc))
+    # print('Epoch = {}, AUC = {:.4f}'.format(best_epoch, max_val_auc))
+
+
+    print(
+        'Best AUC achieved at Epoch {} | '
+        'AUROC = {:.4f},  AUPRC = {:.4f}, Precision = {:.4f}, Recall = {:.4f}, F1 = {:.4f}'.format(
+            best_epoch,
+            float(max_val_auc) if not np.isnan(max_val_auc) else np.nan,
+            float(best_auprc) if not np.isnan(best_auprc) else np.nan,
+            float(best_precision) if not np.isnan(best_precision) else np.nan,
+            float(best_recall) if not np.isnan(best_recall) else np.nan,
+            float(best_f1) if not np.isnan(best_f1) else np.nan
+        )
+    )
+    
 
     return model, train_loss, val_auc
