@@ -122,9 +122,6 @@ class Params:
             kwargs["testbs"] = 300 if testbs == -1 else testbs
             return SimulatedState(**kwargs)
         
-        if data == "simulated_data_l2x":
-            kwargs["testbs"] = 300 if testbs == -1 else testbs
-            return SimulatedL2X(**kwargs)
         
         if data == "seqcombmv":
             kwargs["testbs"] = 300 if testbs == -1 else testbs
@@ -268,30 +265,69 @@ class Params:
         return explainer_dict
 
     def _resolve_model_args(self) -> None:
-        hidden_size = self.argdict['hiddensize']
-        dropout = self.argdict['dropout']
-        num_layers = self.argdict['numlayers']
-        model_type = self.argdict['modeltype'].upper()
-        lr = self.argdict['lr']
-        self._model_args = {"hidden_size": hidden_size,
-                            "dropout": dropout,
-                            "num_layers": num_layers,
-                            "model_type": model_type,
-                            }
+        ad = self.argdict
+        get = lambda k, d=None: ad.get(k, d)
 
-        if lr is None:
-            lr = 1e-4 if isinstance(self._datasets, Mimic) else 1e-3
+        # --- Normalize / validate model type ---
+        model_type = str(get('modeltype', 'GRU')).upper()
 
-        if isinstance(self._datasets, Mimic):
-            if model_type == "GRU":
-                num_epochs = 100
-            elif model_type == "CONV":
-                num_epochs = 10
-            elif model_type == "LSTM":
-                num_epochs = 30
-        else:
-            num_epochs = self.argdict['epochs_classifier']
-        self._model_train_args = {"num_epochs": num_epochs, "lr": lr}
+        if model_type not in {'GRU', 'LSTM', 'CONV', 'TRANSFORMER'}:
+            raise ValueError(f"Unsupported modeltype: {model_type}")
+
+        # --- Collect relevant params per model from argdict (only keep if provided) ---
+        keys_by_model = {
+            'GRU': ['hidden_size', 'dropout', 'num_layers', 'bidirectional', 'input_size', 'n_classes'],
+            'LSTM': ['hidden_size', 'dropout', 'num_layers', 'bidirectional', 'input_size', 'n_classes'],
+            'CONV': ['in_channels', 'hidden_channels', 'kernel_size', 'stride', 'padding', 'dropout', 'n_classes'],
+            'TRANSFORMER': ['d_inp', 'nhead', 'num_layers', 'trans_dim_feedforward', 'dropout',
+                            'n_classes', 'd_pe']
+        }
+
+    #             d_inp = val[0].shape[-1],    # D of dataset
+    #     max_len = val[0].shape[0],   # T
+    #     n_classes = 4,
+    #     num_layers = 2,
+    #     nhead = 1,
+    #     trans_dim_feedforward = 64,
+    #     trans_dropout = 0.25,
+    #     d_pe = 16,
+    #     # aggreg = 'mean',
+    #     # norm_embedding = True
+    # )
+
+
+
+        model_args = {'model_type': model_type}
+        for k in keys_by_model[model_type]:
+            v = ad.get(k, None)
+            if v is not None:
+                model_args[k] = v
+
+        # Backward-compat for your earlier keys
+        # (only add if not already set)
+        # if 'hidden_size' not in model_args and get('hiddensize') is not None:
+        #     model_args['hidden_size'] = get('hiddensize')
+        # if 'num_layers' not in model_args and get('numlayers') is not None:
+        #     model_args['num_layers'] = get('numlayers')
+
+        # --- Optim settings with sensible defaults ---
+        lr = get('lr', None)
+
+
+        weight_decay = float(get('weight_decay', 0.0))
+        num_layers = ad.get('numlayers')
+        # --- Epochs logic (preserve Mimic-specific defaults, else use epochs_classifier) ---
+        epochs = get('epochs_classifier', None)
+
+
+        # Finalize
+        self._model_args = model_args
+        self._model_train_args = {
+            'num_epochs': int(epochs),
+            'lr': float(lr),
+            'weight_decay': weight_decay
+        }
+
 
         base_out_path = pathlib.Path(self.argdict["outpath"])
         base_ckpt_path = pathlib.Path(self.argdict["ckptpath"])
@@ -329,6 +365,8 @@ class Params:
             return base_path / "lstm"
         elif model_type == "CONV":
             return base_path / "conv"
+        elif model_type == "TRANSFORMER":
+            return base_path / "transformer"
         else:
             raise Exception("Unknown model type ({})".format(model_type))
 

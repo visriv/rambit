@@ -83,7 +83,7 @@ if __name__ == '__main__':
         dataset.load_data(train_ratio=train_ratio)
         runner = ExplanationRunner(dataset, device, out_path, ckpt_path, plot_path)
 
-
+        print(model_args.keys())
         runner.init_model(**model_args)
         use_all_times = not isinstance(dataset, (SeqCombMV, Mimic, Boiler, MITECG, PAM))
         if train_models:

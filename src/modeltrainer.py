@@ -7,25 +7,28 @@ from typing import Dict
 
 import numpy as np
 import torch
-from sklearn.metrics import roc_auc_score, recall_score, precision_score, precision_recall_fscore_support, accuracy_score
+from sklearn.metrics import roc_auc_score, recall_score, precision_score, precision_recall_fscore_support, accuracy_score, average_precision_score, f1_score
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.dataloader import WinITDataset
 from src.models.base_models import StateClassifier, ConvClassifier, TorchModel
 from src.utils.basic_utils import resolve_device
-
+from sklearn.preprocessing import label_binarize
+from src.models.encoders.transformer_simple import TransformerMVTS
+from src.utils.predictors.loss import Poly1CrossEntropyLoss
 
 @dataclasses.dataclass(frozen=True)
 class EpochResult:
     epoch_loss: float
     accuracy: float
     auc: float
+    AUPRC: float
     precision: float
     recall: float
-
+    f1: float
     def __str__(self):
-        return f"Loss: {self.epoch_loss}, Acc: {100 * self.accuracy:.2f}%, Auc: {self.auc:.4f}"
+        return f"Loss: {self.epoch_loss}, Acc: {100 * self.accuracy:.2f}%, Precision: {self.precision:.4f}, Recall: {self.recall:.4f}, AUPRC: {self.AUPRC:.4f}, AUROC: {self.auc:.4f}, F1: {self.f1:.4f}"
 
 
 class ModelTrainer:
@@ -42,6 +45,10 @@ class ModelTrainer:
         dropout: float,
         num_layers: int,
         model_file_name: pathlib.Path,
+        nhead: int = None,
+        trans_dim_feedforward: int = None,
+        d_pe: int = None,
+        max_len: int = None,
         model_type: str = "GRU",
         device: str | torch.device | None = None,
         verbose_eval: int = 10,
@@ -66,7 +73,7 @@ class ModelTrainer:
             model_file_name:
                The model file name (pathlib.Path)
             model_type:
-               The model type. Can be "GRU", "LSTM" or "CONV"
+               The model type. Can be "GRU", "LSTM" or "CONV" or "TRANSFORMER"
             device:
                The torch device.
             verbose_eval:
@@ -82,8 +89,15 @@ class ModelTrainer:
         self.dropout = dropout
         self.num_layers = num_layers
         self.model_type = model_type
+        self.nhead = nhead
+        self.trans_dim_feedforward = trans_dim_feedforward
+        self.d_pe = d_pe
+        self.max_len = max_len
         self.model: TorchModel | None = None
 
+        vishal_code=True
+        captum_input=True
+        
         if model_type in ["GRU", "LSTM"] or model_type is None:
             self.model = StateClassifier(
                 feature_size=self.feature_size,
@@ -102,8 +116,20 @@ class ModelTrainer:
                 kernel_size=10,
                 device=self.device,
             )
+        elif model_type == "TRANSFORMER":
+            self.model = TransformerMVTS(        
+                d_inp = self.feature_size,  # D of dataset
+                max_len = self.max_len,  # T of dataset
+                n_classes = self.num_classes,
+                nlayers = self.num_layers,
+                nhead = self.nhead,
+                trans_dim_feedforward = self.trans_dim_feedforward,
+                trans_dropout = self.dropout,
+                d_pe = self.d_pe,
+                vishal_code=vishal_code,
+                captum_input=captum_input)
         else:
-            raise ValueError(f"Invalid model type ({model_type}). Must be ('GRU', 'LSTM', 'CONV')")
+            raise ValueError(f"Invalid model type ({model_type}). Must be ('GRU', 'LSTM', 'CONV', 'TRANSFORMER')")
 
         self.verbose_eval = verbose_eval
         self.early_stopping = early_stopping
@@ -142,7 +168,8 @@ class ModelTrainer:
                Use all the timestep for training. Otherwise, only use the last timestep.
 
         """
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+
         train_results_trend = []
         valid_results_trend = []
 
@@ -268,6 +295,8 @@ class ModelTrainer:
             An EpochResult object containing the epoch loss and other metrics.
 
         """
+
+
         multiclass = self.num_classes > 1
         self.model = self.model.to(self.device)
         if run_train:
@@ -278,7 +307,14 @@ class ModelTrainer:
             self.model.eval()
         epoch_loss = 0
         if multiclass:
-            loss_criterion = torch.nn.CrossEntropyLoss()
+            # loss_criterion = torch.nn.CrossEntropyLoss()
+            loss_criterion = Poly1CrossEntropyLoss(
+                num_classes = self.num_classes,
+                epsilon = 1.0,
+                weight = None,
+                reduction = 'mean'
+            )
+            
         else:
             loss_criterion = torch.nn.BCEWithLogitsLoss()
         all_labels, all_probs = [], []
@@ -314,23 +350,7 @@ class ModelTrainer:
         all_probs = np.concatenate(all_probs)
         epoch_loss = epoch_loss / len(dataloader)
 
-        # auc = (
-        #     0
-        #     if len(np.unique(all_labels)) < 2 or multiclass
-        #     else roc_auc_score(all_labels.reshape(-1), all_probs.reshape(-1))
-        # )
-        # all_preds = (all_probs > 0.5).astype(int)
-        # recall = (
-        #     0
-        #     if multiclass
-        #     else recall_score(all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0)
-        # )
-        # precision = (
-        #     0
-        #     if multiclass
-        #     else precision_score(all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0)
-        # )
-        # accuracy = 0 if multiclass else float(np.mean(all_labels == all_preds))
+
         y = np.asarray(all_labels)
         p = np.asarray(all_probs)
 
@@ -343,15 +363,21 @@ class ModelTrainer:
 
             # AUC only if both classes present
             auc = np.nan
+            auprc = np.nan
+
             if np.unique(y).size >= 2:
                 try:
                     auc =  roc_auc_score(all_labels.reshape(-1), all_probs.reshape(-1))
+                    auprc = average_precision_score(all_labels.reshape(-1), all_probs.reshape(-1))
+
                 except ValueError:
                     auc = np.nan
+                    auprc = np.nan
 
             precision = precision_score(all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0)
             recall = recall_score(all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0)
-            
+            f1 = f1_score(all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0)
+
 
         else:
             # ---- Multiclass ----
@@ -360,11 +386,18 @@ class ModelTrainer:
 
             # Multiclass AUC (needs per-class probs)
             auc = np.nan
+            auprc = np.nan
+
             if np.unique(y).size >= 2:
                 try:
                     auc = roc_auc_score(y, p, multi_class="ovr", average="macro")
+                    # --- AUPRC ---
+                    y_bin = label_binarize(y, classes=np.arange(p.shape[1]))
+                    auprc = average_precision_score(y_bin, p, average="macro")
                 except ValueError:
                     auc = np.nan
+                    auprc = np.nan
+
 
             precision, recall, f1, _ = precision_recall_fscore_support(
                 y, y_pred, average="macro", zero_division=0
@@ -373,8 +406,10 @@ class ModelTrainer:
             epoch_loss=epoch_loss,
             accuracy=acc,
             auc=auc,
+            AUPRC=auprc,
             precision=precision, 
             recall=recall,
+            f1 = f1
         )
 
 
@@ -390,6 +425,10 @@ class ModelTrainerWithCv:
         hidden_size: int,
         dropout: float,
         num_layers: int,
+        nhead: int = None,
+        trans_dim_feedforward: int = None,
+        d_pe: int = None,
+        # max_len: int = None,
         model_type: str = "GRU",
         device: str | torch.device | None = None,
         verbose_eval: int = 10,
@@ -421,12 +460,18 @@ class ModelTrainerWithCv:
         self.dataset = dataset
         self.model_path = ckpt_path / dataset.get_name()
         self.model_path.mkdir(parents=True, exist_ok=True)
+        max_len = dataset.max_len
         self.model_args = {
             "batch_size": dataset.batch_size,
             "hidden_size": hidden_size,
             "dropout": dropout,
             "num_layers": num_layers,
             "model_type": model_type,
+            "trans_dim_feedforward": trans_dim_feedforward,
+            "nhead": nhead,
+            "d_pe": d_pe,
+            "max_len": max_len
+
         }
         self.model_trainers: Dict[int, ModelTrainer] = {}
         self.log = logging.getLogger(ModelTrainerWithCv.__name__)
@@ -440,6 +485,10 @@ class ModelTrainerWithCv:
                 dropout,
                 num_layers,
                 self._model_file_name(cv),
+                nhead,
+                trans_dim_feedforward,
+                d_pe,
+                max_len,
                 model_type,
                 device,
                 verbose_eval,
@@ -552,6 +601,10 @@ class ModelTrainerWithCv:
             "bs": self.model_args["batch_size"],
             "hid": self.model_args["hidden_size"],
             "drop": self.model_args["dropout"],
+            "nh": self.model_args["nhead"],
+            "x_ff_dim": self.model_args["trans_dim_feedforward"],
+            "d_pe": self.model_args["d_pe"],
+            
         }
 
         num_layers = self.model_args.get("num_layers")
@@ -561,5 +614,5 @@ class ModelTrainerWithCv:
         str_list = ["model"]
         if rnn_type is not None and rnn_type != "gru":
             str_list.append(rnn_type)
-        str_list.extend([f"{key}_{value}" for key, value in shortened_args.items()])
+        str_list.extend([f"{key}_{value}" for key, value in shortened_args.items() if value is not None])
         return "_".join(str_list)

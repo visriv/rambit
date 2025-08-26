@@ -1,7 +1,12 @@
 import abc
-
 import torch
 from torch import nn
+import torch.nn.functional as F
+import os, ipdb
+import sys; sys.path.append(os.path.dirname(__file__))
+# from .positional_enc import PositionalEncodingTF
+# from .layers import TransformerEncoderInterpret, TransformerEncoderLayerInterpret
+#from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 
 class TorchModel(nn.Module, abc.ABC):
@@ -214,3 +219,6 @@ class StateClassifier(TorchModel):
         else:
             encoding = encoding[-1, :, :]  # encoding.shape (num_samples, num_hidden)
             return self.regressor(encoding)  # (num_samples, num_states)
+
+
+

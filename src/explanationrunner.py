@@ -80,10 +80,14 @@ class ExplanationRunner:
 
     def init_model(
         self,
-        hidden_size: int,
-        dropout: float,
-        num_layers: int,
+        hidden_size: int = 200,
+        dropout: float = 0.5,
+        num_layers: int = 1,
         model_type: str = "GRU",
+        nhead: int = None,
+        trans_dim_feedforward: int = None,
+        d_pe: str = None,
+        # max_len: str = None,
         verbose_eval: int = 10,
         early_stopping: bool = False,
     ) -> None:
@@ -110,6 +114,10 @@ class ExplanationRunner:
             hidden_size,
             dropout,
             num_layers,
+            nhead,
+            trans_dim_feedforward,
+            d_pe,
+            # max_len,
             model_type,
             self.device,
             verbose_eval,
@@ -159,10 +167,18 @@ class ExplanationRunner:
         test_results = self.model_trainers.get_test_results(use_all_times)
         test_accs = [round(v.accuracy, 6) for v in test_results.values()]
         test_aucs = [round(v.auc, 6) for v in test_results.values()]
+        test_auprcs = [round(v.AUPRC, 6) for v in test_results.values()]
+        test_precisions = [round(v.precision, 6) for v in test_results.values()]
+        test_recall = [round(v.recall, 6) for v in test_results.values()]
         self.log.info(f"Average Accuracy = {np.mean(test_accs):.4f}\u00b1{np.std(test_accs):.4f}")
-        self.log.info(f"Model Accuracy on Tests = {test_accs}.")
         self.log.info(f"Average AUC = {np.mean(test_aucs):.4f}\u00b1{np.std(test_aucs):.4f}")
+        self.log.info(f"Average AUPRC = {np.mean(test_auprcs):.4f}\u00b1{np.std(test_auprcs):.4f}")
+
+        self.log.info(f"Model Accuracy on Tests = {test_accs}.")
         self.log.info(f"Model AUC on Tests = {test_aucs}.")
+        self.log.info(f"Model Precision on Tests = {test_precisions}.")
+        self.log.info(f"Model Recall on Tests = {test_recall}.")
+        self.log.info(f"Model AUPRC on Tests = {test_auprcs}.")
 
     def run_inference(
         self,

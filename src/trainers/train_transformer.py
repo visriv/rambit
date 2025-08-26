@@ -3,8 +3,9 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-from sklearn.metrics import roc_auc_score, f1_score, mean_absolute_error
-
+from sklearn.metrics import roc_auc_score, f1_score, mean_absolute_error, precision_recall_fscore_support, average_precision_score
+from sklearn.preprocessing import label_binarize
+from sklearn.metrics import mean_absolute_error
 sys.path.append(os.path.dirname(__file__))
 
 from src.utils.predictors.loss import Poly1CrossEntropyLoss
@@ -145,7 +146,7 @@ def train(
                 loss = loss + loss2 # Add together total loss to be shown in train_loss
 
             train_loss.append(loss.item())
-            
+                    
         # Validation:
         model.eval()
         with torch.no_grad():
@@ -153,27 +154,55 @@ def train(
             if validate_by_step is not None:
                 if isinstance(model, CNN) or isinstance(model, LSTM):
                     pred = torch.cat(
-                        [model(xb, tb) for xb, tb in zip(torch.split(X, validate_by_step, dim=1), torch.split(times, validate_by_step, dim=1))],
+                        [model(xb, tb) for xb, tb in zip(torch.split(X, validate_by_step, dim=1),
+                                                        torch.split(times, validate_by_step, dim=1))],
                         dim=0
                     )
                 else:
-                    pred, _ = batch_forwards_TransformerMVTS(model, X, times, batch_size = validate_by_step)
+                    pred, _ = batch_forwards_TransformerMVTS(model, X, times, batch_size=validate_by_step)
             else:
-                # if detect_irreg:
-                #     pred = model(X, times, show_sizes = show_sizes, src_mask = src_mask)
-                # else:
-                pred = model(X, times, show_sizes = show_sizes)
+                pred = model(X, times, show_sizes=show_sizes)
+
             val_loss = criterion(pred, y)
 
-            # Calculate AUROC:
-            #auc = roc_auc_score(one_hot(y), pred.detach().cpu().numpy(), average = 'weighted')
             if regression:
+                # Keep your existing behavior
                 auc = -1.0 * mean_absolute_error(y.cpu().numpy(), pred.cpu().numpy())
+                # No PR/AUROC for regression; set to NaN for printing consistency
+                auroc = np.nan
+                auprc = np.nan
+                precision = np.nan
+                recall = np.nan
+                f1 = np.nan
             else:
-                auc = f1_score(y.cpu().numpy(), pred.argmax(dim=1).detach().cpu().numpy(), average='macro', )
+                # ---- Classification metrics ----
+                y_true = y.cpu().numpy()
+                # Use softmax probabilities for AUROC/AUPRC
+                probs = torch.softmax(pred, dim=1).detach().cpu().numpy()
+                y_pred = probs.argmax(axis=1)
+
+                # Macro-averaged AUROC (multiclass-safe)
+                auroc = np.nan
+                auprc = np.nan
+                try:
+                    if np.unique(y_true).size >= 2:
+                        auroc = roc_auc_score(y_true, probs, multi_class="ovr", average="macro")
+                        # AUPRC via label binarization (macro average)
+                        y_bin = label_binarize(y_true, classes=np.arange(probs.shape[1]))
+                        auprc = average_precision_score(y_bin, probs, average="macro")
+                except ValueError:
+                    auroc = np.nan
+                    auprc = np.nan
+
+                precision, recall, f1, _ = precision_recall_fscore_support(
+                    y_true, y_pred, average="macro", zero_division=0
+                )
+
+                # Preserve your original scheduler signal: use F1 as "auc"
+                auc = f1
 
             if use_scheduler:
-                scheduler.step(auc) # Step the scheduler
+                scheduler.step(auc)  # Step the scheduler
 
             val_auc.append(auc)
 
@@ -181,13 +210,26 @@ def train(
                 max_val_auc = auc
                 best_epoch = epoch
                 torch.save(model.state_dict(), save_path)
-                #best_sd = model.state_dict()
 
-        if (epoch + 1) % print_freq == 0: # Print progress:
-            # print('y', y)
-            # print('pred', pred) 
+        if (epoch + 1) % print_freq == 0:  # Print progress:
             met = 'MAE' if regression else 'F1'
-            print('Epoch {}, Train Loss = {:.4f}, Val {} = {:.4f}'.format(epoch + 1, train_loss[-1], met, auc))
+            # For convenience, print both "AUC" and "AUROC" (same value here)
+            print(
+                'Epoch {}, Train Loss = {:.4f}, Val Loss = {:.4f}, {} (scheduler) = {:.4f} | '
+                'AUROC = {:.4f}, AUC = {:.4f}, AUPRC = {:.4f}, Precision = {:.4f}, Recall = {:.4f}, F1 = {:.4f}'.format(
+                    epoch + 1,
+                    train_loss[-1],
+                    float(val_loss.detach().cpu().item()),
+                    met, float(auc),
+                    float(auroc) if not np.isnan(auroc) else np.nan,
+                    float(auroc) if not np.isnan(auroc) else np.nan,  # AUC alias for AUROC
+                    float(auprc) if not np.isnan(auprc) else np.nan,
+                    float(precision) if not np.isnan(precision) else np.nan,
+                    float(recall) if not np.isnan(recall) else np.nan,
+                    float(f1) if not np.isnan(f1) else np.nan
+                )
+            )
+
 
     # Return best model:
     model.load_state_dict(torch.load(save_path))

@@ -1,7 +1,7 @@
 # config/main.yaml
 
 # ─── Dataset & Seeds ──────────────────────────────────────────────────────────
-data: boiler                     # choices: [spike, state, switch, seqcombmv, pam, boiler, mitecg, mimic, water, wafer, epilepsy]                     
+data: seqcombmv                     # choices: [spike, state, switch, seqcombmv, pam, boiler, mitecg, mimic, water, wafer, epilepsy]                     
 explainer:                      # one or more of [fit, winit, biwinit, jimex,  ig, deeplift, fo, afo, gradientshap, dynamask]
   # - deeplift
   # - gradientshap
@@ -9,15 +9,15 @@ explainer:                      # one or more of [fit, winit, biwinit, jimex,  i
   # - dynamask
   # - fo
   # - fit
-  # - winit
-  - jimex
+  - winit
+  # - jimex
 cv:                             # cross‐validation folds to run 
   - 0                           # works only one at a time
   # - 1
   # - 2
   # - 3
   # - 4
-train_ratio: 0.97
+train_ratio: 0.80
 testbs: 32                   # test batch size
 dataseed: 1234                  # random state for data split
 datapath: "./data/"                  # path to raw data (null = use default)
@@ -34,7 +34,7 @@ logfile: null                   # if non‐null, name of individual run’s log 
 # ─── Run Modes ────────────────────────────────────────────────────────────────
 train: False                    # if true, run model training
 traingen: False                 # if true, run generator training
-do_explain: True              # if true, skip explanation generation
+do_explain: False              # if true, skip explanation generation
 eval_explain: True                     # if true, run feature‐importance evaluation
 loglevel: info                  # one of [warning, info, error, debug]
 nondeterministic: false         # if true, PyTorch is non‐deterministic
