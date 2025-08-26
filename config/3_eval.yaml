@@ -46,7 +46,7 @@ dropout: 0.5                    # dropout rate
 numlayers: 1                    # number of RNN layers (choices: [1,2,3])
 modeltype: "gru"                # architecture (choices: [conv, lstm, gru])
 lr: null                        # learning rate (null = use default inside code)
-epochs_classifier: 15
+epochs_classifier: 150
 # ─── Generator Settings ───────────────────────────────────────────────────────
 joint: false                    # if true, use joint generator
 conditional: false              # if true, use conditional generator
@@ -65,7 +65,7 @@ lastonly: null                  # "True" or "False" or null
 # ─── Jimex/WinIT/FIT  Settings ─────────────────────────────────────────────────
 windows:                         # list of window sizes (for target prediction)
   # - 10
-  - 20
+  # - 20
   - 30
 winitmetric:                    # list of metrics (choices: [kl, js, pd])
   - pd
@@ -73,7 +73,7 @@ usedatadist: True              # if true, sample masked features from data dist 
 all_zero_cf: False             # either of this is or above is True
 num_samples: 3                     # # of samples per mask in WinIT
 num_masks:                      # number of masks (L)
-- 3
+# - 3
 - 5
 - 10
 wt_bounds: [1, 4]
