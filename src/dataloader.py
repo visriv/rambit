@@ -106,6 +106,7 @@ class WinITDataset(abc.ABC):
         # print(train_label)
         # print(len(train_label))
         feature_size = train_data.shape[1]
+        max_len = train_data.shape[2] # TODO
         train_tensor_dataset = TensorDataset(torch.Tensor(train_data), torch.Tensor(train_label))
         test_tensor_dataset = TensorDataset(torch.Tensor(test_data), torch.Tensor(test_label))
 
@@ -137,7 +138,7 @@ class WinITDataset(abc.ABC):
         test_loader = DataLoader(test_tensor_dataset, batch_size=testbs)
         self.test_loader = test_loader
         self.feature_size = feature_size
-
+        self.max_len = max_len
     @abc.abstractmethod
     def load_data(self) -> None:
         """
@@ -472,6 +473,12 @@ class SeqCombMV(SimulatedData):
         X_test = self.D["test"][0].permute(1, 2, 0)
         y_test = self.D["test"][2]
 
+
+        # Extract val data (D['val'] is a tuple: (X, times, y))
+        X_val = self.D["val"][0].permute(1, 2, 0)
+        y_val = self.D["val"][2]
+
+
         # Get stats
         # ---- Helper: convert labels to integer class ids ----
         def to_class_ids(y: torch.Tensor) -> np.ndarray:
@@ -489,6 +496,7 @@ class SeqCombMV(SimulatedData):
 
         y_train_np = to_class_ids(y_train)
         y_test_np  = to_class_ids(y_test)
+        y_val_np  = to_class_ids(y_val)
 
         # ---- Count per-class, show counts and percentages ----
         all_classes = np.unique(np.concatenate([y_train_np, y_test_np]))
@@ -502,6 +510,7 @@ class SeqCombMV(SimulatedData):
 
         train_counts = counts_for(y_train_np, all_classes)
         test_counts  = counts_for(y_test_np,  all_classes)
+        val_counts  = counts_for(y_val_np,  all_classes)
 
         def with_pct(cnt_dict):
             total = sum(cnt_dict.values()) or 1
@@ -510,9 +519,10 @@ class SeqCombMV(SimulatedData):
         print("Classes:", list(map(int, all_classes)))
         print("Train class stats:", with_pct(train_counts))
         print("Test  class stats:", with_pct(test_counts))
+        print("Val  class stats:", with_pct(val_counts))
 
 
-        self._get_loaders(X_train, y_train, X_test, y_test)
+        self._get_loaders(X_train, y_train, X_test, y_test, X_val, y_val)
 
 
     def load_ground_truth_importance(self) -> np.ndarray:

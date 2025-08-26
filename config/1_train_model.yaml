@@ -42,9 +42,9 @@ nondeterministic: false         # if true, PyTorch is non‐deterministic
 # ─── Base Model / Training Hyperparams ────────────────────────────────────────
 hiddensize: 200                 # hidden size of base model
 batchsize: 32                   # batch size of base model
-dropout: 0.50                    # dropout rate
+dropout: 0.25                    # dropout rate
 numlayers: 1                    # number of RNN layers (choices: [1,2,3])
-modeltype: "gru"                # architecture (choices: [conv, lstm, gru, transformer])
+modeltype: "transformer"                # architecture (choices: [conv, lstm, gru, transformer])
 
 nhead: 1
 trans_dim_feedforward: 64

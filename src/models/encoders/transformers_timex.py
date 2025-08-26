@@ -8,7 +8,6 @@ import os, ipdb
 import sys; sys.path.append(os.path.dirname(__file__))
 from .positional_enc import PositionalEncodingTF
 from ..layers import TransformerEncoderInterpret, TransformerEncoderLayerInterpret
-from src.models.base_models import TorchModel
 #from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 pam_config = {
@@ -27,7 +26,7 @@ pam_config = {
     'static': False,
 }
 
-class TransformerMVTS(TorchModel):
+class TransformerMVTS(nn.Module):
     """ Transformer model with context embedding, aggregation, split dimension positional and element embedding
     Inputs:
         d_inp = number of input features
@@ -61,15 +60,9 @@ class TransformerMVTS(TorchModel):
             pre_seq_mlp = False,
             stronger_clf_head = False,
             pre_agg_transform = False,
-            vishal_code : bool = False,
-            captum_input : bool = False,
-            return_all : bool = False
             ):
 
-        super(TransformerMVTS, self).__init__(feature_size = d_inp, 
-                                              num_states=n_classes, 
-                                              hidden_size=trans_dim_feedforward, 
-                                              device = torch.cuda)
+        super(TransformerMVTS, self).__init__()
         self.model_type = 'Transformer'
         self.d_inp = d_inp
         self.max_len = max_len
@@ -94,10 +87,6 @@ class TransformerMVTS(TorchModel):
 
         self.pos_encoder = PositionalEncodingTF(self.d_pe, max_len, MAX)
 
-        self.vishal_code = vishal_code
-        self.captum_input = captum_input
-        # self.return_all = return_all
-        
         #Set up Transformer encoder:
         encoder_layers = TransformerEncoderLayerInterpret(
             d_model = self.d_pe + d_inp, #self.d_pe + d_inp
@@ -198,7 +187,7 @@ class TransformerMVTS(TorchModel):
             aggregate = True,
             get_both_agg_full = False,
         ):
-        #print('src at entry', src.isnan().sum())
+        # print('src at entry', src.isnan().sum())
 
         if captum_input:
             # Flip from (B, T, d) -> (T, B, d)
@@ -261,6 +250,7 @@ class TransformerMVTS(TorchModel):
         # mask is (B*n_heads,T,T) - if None has no effect
         if x.isnan().sum() > 0:
             print('before enc', x.isnan().sum())
+
         output_preagg, attn = self.transformer_encoder(x, src_key_padding_mask = src_mask, mask = attn_mask)
 
         if show_sizes:
@@ -294,26 +284,28 @@ class TransformerMVTS(TorchModel):
 
         if self.norm_embedding and aggregate:
             output = F.normalize(output, dim = -1)
+        
 
         if get_both_agg_full:
             return output, output_preagg
 
         if aggregate:
             return output
+            
         else:
+            
             return output_preagg
 
     def forward(self, 
             src, 
-            times = None, 
+            times, 
             static = None, 
-            # captum_input = False, # Using captum-style input scheme (src.shape = (B, d, T), times.shape = (B, T))
+            captum_input = False, # Using captum-style input scheme (src.shape = (B, d, T), times.shape = (B, T))
             show_sizes = False, # Used for debugging
             attn_mask = None,
             src_mask = None,
             get_embedding = False,
             get_agg_embed = False,
-            return_all = False
             ):
         '''
         * Ensure all inputs are cuda before calling forward method
@@ -333,18 +325,6 @@ class TransformerMVTS(TorchModel):
         '''
 
         #print('src_mask', src_mask.shape)
-
-
-        vishal_code = self.vishal_code
-        captum_input = self.captum_input
-
-        if (vishal_code == True):
-            src = src.permute(0,2,1)
-            T = src.shape[1]
-            B = src.shape[0]
-            row = torch.arange(1, T+1).unsqueeze(0)   # shape 1 x T
-            times = row.expand(B, -1).to(src.device)
-
 
         out, out_full = self.embed(src, times,
             static = static,
