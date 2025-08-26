@@ -535,43 +535,43 @@ class ExplanationRunner:
                 pkl.dump(importance_scores, f, protocol=pkl.HIGHEST_PROTOCOL)
             
         # do the same for extra_scores
-        if getattr(self, "extra_scores", None) is not None:
-            # if its a list
-            if not isinstance(self.extra_scores, dict):
-                fname = f"extra_scores.pkl"
-                file_path = importance_path / fname
-                self.log.info(f"Saving extra for CV={cv} to {file_path}")
-                with file_path.open("wb") as f:
-                    pkl.dump(self.extra_scores, f, protocol=pkl.HIGHEST_PROTOCOL)
+        # if getattr(self, "extra_scores", None) is not None:
+        #     # if its a list
+        #     if not isinstance(self.extra_scores, dict):
+        #         fname = f"extra_scores.pkl"
+        #         file_path = importance_path / fname
+        #         self.log.info(f"Saving extra for CV={cv} to {file_path}")
+        #         with file_path.open("wb") as f:
+        #             pkl.dump(self.extra_scores, f, protocol=pkl.HIGHEST_PROTOCOL)
 
-            # if a dict
-            else:
-                for cv, extras in self.extra_scores.items():
-                    # if extras is a dict of named arrays
-                    if isinstance(extras, dict):
-                        for name, arr in extras.items():
-                            fname = f"{cv}_{name}.pkl"
-                            file_path = importance_path / fname
-                            self.log.info(f"Saving extra '{name}' for CV={cv} to {file_path}")
-                            with file_path.open("wb") as f:
-                                pkl.dump(arr, f, protocol=pkl.HIGHEST_PROTOCOL)
+        #     # if a dict
+        #     else:
+        #         for cv, extras in self.extra_scores.items():
+        #             # if extras is a dict of named arrays
+        #             if isinstance(extras, dict):
+        #                 for name, arr in extras.items():
+        #                     fname = f"{cv}_{name}.pkl"
+        #                     file_path = importance_path / fname
+        #                     self.log.info(f"Saving extra '{name}' for CV={cv} to {file_path}")
+        #                     with file_path.open("wb") as f:
+        #                         pkl.dump(arr, f, protocol=pkl.HIGHEST_PROTOCOL)
 
-                    # if extras is a list of arrays, just index them
-                    elif isinstance(extras, (list, tuple)):
-                        for idx, arr in enumerate(extras):
-                            fname = f"{cv}_extra_{idx}.pkl"
-                            file_path = importance_path / fname
-                            self.log.info(f"Saving extra index {idx} for CV={cv} to {file_path}")
-                            with file_path.open("wb") as f:
-                                pkl.dump(arr, f, protocol=pkl.HIGHEST_PROTOCOL)
+        #             # if extras is a list of arrays, just index them
+        #             elif isinstance(extras, (list, tuple)):
+        #                 for idx, arr in enumerate(extras):
+        #                     fname = f"{cv}_extra_{idx}.pkl"
+        #                     file_path = importance_path / fname
+        #                     self.log.info(f"Saving extra index {idx} for CV={cv} to {file_path}")
+        #                     with file_path.open("wb") as f:
+        #                         pkl.dump(arr, f, protocol=pkl.HIGHEST_PROTOCOL)
 
-                    else:
-                        # fallback: try saving it directly
-                        fname = f"{cv}_extra_scores.pkl"
-                        file_path = importance_path / fname
-                        self.log.info(f"Saving extra_scores for CV={cv} to {file_path}")
-                        with file_path.open("wb") as f:
-                            pkl.dump(extras, f, protocol=pkl.HIGHEST_PROTOCOL)
+        #             else:
+        #                 # fallback: try saving it directly
+        #                 fname = f"{cv}_extra_scores.pkl"
+        #                 file_path = importance_path / fname
+        #                 self.log.info(f"Saving extra_scores for CV={cv} to {file_path}")
+        #                 with file_path.open("wb") as f:
+        #                     pkl.dump(extras, f, protocol=pkl.HIGHEST_PROTOCOL)
 
     def load_importance(self):
         """
