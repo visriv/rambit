@@ -66,7 +66,7 @@ class WinITDataset(abc.ABC):
         self.batch_size = batch_size
         self.testbs = testbs
         self._cv_to_use = cv_to_use
-        print("self._cv_to_use:", self._cv_to_use)
+        # print("self._cv_to_use:", self._cv_to_use)
 
         torch.set_printoptions(precision=8)
         np.random.seed(seed)
@@ -180,8 +180,8 @@ class WinITDataset(abc.ABC):
         if self.train_loaders is None:
             return [0]
         num_cv = self.num_cv()
-        print('num_cv:', num_cv)
-        print('_cv_to_use:', self._cv_to_use)
+        # print('num_cv:', num_cv)
+        # print('_cv_to_use:', self._cv_to_use)
         if self._cv_to_use is None:
             return list(range(num_cv))
         if isinstance(self._cv_to_use, int) and 0 <= self._cv_to_use < num_cv:
@@ -725,7 +725,7 @@ class Boiler(WinITDataset):
 class MITECG(WinITDataset):
     """
     The MITECG dataset
-    Num Features = x, Num Times = 360, Num Classes = 1, Samples: ~90k
+    Num Features = 1, Num Times = 360, Num Classes = 1, Samples: 92511
     """
 
     def __init__(
@@ -837,6 +837,100 @@ class MITECG(WinITDataset):
     def num_classes(self) -> int:
         return 1
     
+
+class MITECG_Old(WinITDataset):
+    """
+    The MITECG - same use as in TimeX 
+    Num Features = 1, Num Times = 360, Num Classes = 1, Samples: 92511
+    """
+
+    def __init__(
+        self,
+        data_path: pathlib.Path = pathlib.Path("./data/"),
+        batch_size: int = 100,
+        testbs: int | None = None,
+        deterministic: bool = False,
+        file_name: str = "patient_vital_preprocessed.pkl",
+        cv_to_use: List[int] | int | None = None,
+        seed: int | None = 1234,
+        device: str = 'cuda'
+    ):
+        super().__init__(data_path, batch_size, testbs, deterministic, cv_to_use, seed)
+        self.file_name = file_name
+        self.device = device
+        self.data_path = data_path
+
+
+    def load_data(self, train_ratio=0.8): 
+        train_chunk, val_chunk, test_chunk, _  = process_MITECG(split_no = self.cv_to_use[0]+1, 
+                                                                device = None, 
+                                                                hard_split = True, 
+                                                                normalize = False, 
+                                                                exclude_pac_pvc = True, 
+                                                                balance_classes = False, 
+                                                                div_time = False, 
+                                                                need_binarize = True, 
+                                                                base_path = Path(self.data_path) / 'MITECG'
+                                                                )
+
+
+        X_train = train_chunk.X.permute(1,2,0)
+        X_test = test_chunk.X.permute(1,2,0)
+        X_valid = val_chunk.X.permute(1,2,0)
+
+        y_train = train_chunk.y
+        y_test = test_chunk.y
+        y_valid = val_chunk.y
+
+        self._get_loaders(X_train, y_train, X_test, y_test,  X_valid, y_valid)
+
+
+
+
+
+
+
+        # all_chunk.X shape: (features, n_samples, time_steps)? 
+        # but your usage all_chunk.X[:, i] → shape (features, time_steps)
+
+
+
+
+        self._get_loaders(X_train, y_train, X_test, y_test)
+
+    @staticmethod
+    def normalize(train_data, test_data, feature_size):
+        d = np.stack([x.T for x in train_data], axis=0)
+        num_timesteps = train_data.shape[-1]
+        feature_means = np.tile(np.mean(d.reshape(-1, feature_size), axis=0), (num_timesteps, 1)).T
+        feature_std = np.tile(np.std(d.reshape(-1, feature_size), axis=0), (num_timesteps, 1)).T
+        np.seterr(divide="ignore", invalid="ignore")
+        train_data = np.array(
+            [
+                np.where(feature_std == 0, (x - feature_means), (x - feature_means) / feature_std)
+                for x in train_data
+            ]
+        )
+        test_data = np.array(
+            [
+                np.where(feature_std == 0, (x - feature_means), (x - feature_means) / feature_std)
+                for x in test_data
+            ]
+        )
+        return train_data, test_data
+
+    def get_name(self) -> str:
+        return "mitecg_old"
+
+    @property
+    def data_type(self) -> str:
+        return "mitecg_old"
+
+    @property
+    def num_classes(self) -> int:
+        return 1
+    
+
 
 
 class PAM(WinITDataset): 

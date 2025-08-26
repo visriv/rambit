@@ -260,8 +260,15 @@ def process_ECG(split_no = 1, device = None, base_path = ecg_base_path):
     return train_chunk, val_chunk, test_chunk
 
 mitecg_base_path = '/n/data1/hms/dbmi/zitnik/lab/users/owq978/TimeSeriesCBM/datasets/MITECG'
-def process_MITECG(split_no = 1, device = None, hard_split = False, normalize = False, exclude_pac_pvc = False, balance_classes = False, div_time = False, 
-        need_binarize = False, base_path = mitecg_base_path):
+def process_MITECG(split_no = 1, 
+                   device = None, 
+                   hard_split = False, 
+                   normalize = False, 
+                   exclude_pac_pvc = False, 
+                   balance_classes = False, 
+                   div_time = False, 
+                   need_binarize = False, 
+                   base_path = mitecg_base_path):
 
     split_path = 'split={}.pt'.format(split_no)
     idx_train, idx_val, idx_test = torch.load(os.path.join(base_path, split_path))
@@ -278,6 +285,12 @@ def process_MITECG(split_no = 1, device = None, hard_split = False, normalize = 
         
     else:
         X, times, y = torch.load(os.path.join(base_path, 'all_data.pt'))
+
+
+    idx_train = idx_train.long()
+    idx_val = idx_val.long()
+    idx_test = idx_test.long()
+
 
     Ptrain, time_train, ytrain = X[:,idx_train,:].float(), times[:,idx_train], y[idx_train].long()
     Pval, time_val, yval = X[:,idx_val,:].float(), times[:,idx_val], y[idx_val].long()

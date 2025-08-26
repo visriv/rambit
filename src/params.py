@@ -19,7 +19,7 @@ import os
 # torch.backends.cudnn.benchmark = False
 
 
-from src.dataloader import Mimic, Boiler, MITECG, PAM, SimulatedSwitch, SimulatedState, SimulatedSpike, \
+from src.dataloader import Mimic, Boiler, MITECG, MITECG_Old, PAM, SimulatedSwitch, SimulatedState, SimulatedSpike, \
     WinITDataset, SimulatedData, SeqCombMV
 from src.explainer.explainers import BaseExplainer, DeepLiftExplainer, IGExplainer, \
     GradientShapExplainer
@@ -109,6 +109,10 @@ class Params:
         if (data == "mitecg") or (data == "mitecg1"):
             kwargs["testbs"] = 1000 if testbs == -1 else testbs
             return MITECG( **kwargs)
+        
+        if (data == "mitecg_old") or (data == "mitecg1"):
+            kwargs["testbs"] = 1000 if testbs == -1 else testbs
+            return MITECG_Old( **kwargs)
         
         if (data == "pam"):
             kwargs["testbs"] = 1000 if testbs == -1 else testbs
@@ -283,17 +287,6 @@ class Params:
                             'n_classes', 'd_pe']
         }
 
-    #             d_inp = val[0].shape[-1],    # D of dataset
-    #     max_len = val[0].shape[0],   # T
-    #     n_classes = 4,
-    #     num_layers = 2,
-    #     nhead = 1,
-    #     trans_dim_feedforward = 64,
-    #     trans_dropout = 0.25,
-    #     d_pe = 16,
-    #     # aggreg = 'mean',
-    #     # norm_embedding = True
-    # )
 
 
 

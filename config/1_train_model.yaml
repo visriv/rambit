@@ -1,7 +1,7 @@
 # config/main.yaml
 
 # ─── Dataset & Seeds ──────────────────────────────────────────────────────────
-data: state                     # choices: [spike, state, switch, seqcombmv, pam, boiler, mitecg, mimic, water, wafer, epilepsy]                     
+data: boiler                     # choices: [spike, state, switch, seqcombmv, pam, boiler, mitecg, mimic, water, wafer, epilepsy]                     
 explainer:                      # one or more of [fit, winit, biwinit, jimex,  ig, deeplift, fo, afo, gradientshap, dynamask]
   - jimex
   # - winit
@@ -13,10 +13,10 @@ explainer:                      # one or more of [fit, winit, biwinit, jimex,  i
   - fo
 cv:                             # cross‐validation folds to run 
   - 0                           # works only one at a time
-  # - 1
-  # - 2
-  # - 3
-  # - 4
+  - 1
+  - 2
+  - 3
+  - 4
 train_ratio: 0.80
 testbs: 32                   # test batch size
 dataseed: 1234                  # random state for data split
@@ -42,9 +42,9 @@ nondeterministic: false         # if true, PyTorch is non‐deterministic
 # ─── Base Model / Training Hyperparams ────────────────────────────────────────
 hiddensize: 200                 # hidden size of base model
 batchsize: 32                   # batch size of base model
-dropout: 0.25                    # dropout rate
-numlayers: 1                    # number of RNN layers (choices: [1,2,3])
-modeltype: "transformer"                # architecture (choices: [conv, lstm, gru, transformer])
+dropout: 0.50                    # dropout rate
+numlayers: 1                  # number of RNN layers (choices: [1,2,3])
+modeltype: "gru"                # architecture (choices: [conv, lstm, gru, transformer])
 
 nhead: 1
 trans_dim_feedforward: 64
@@ -53,8 +53,8 @@ d_pe: 16
 
 lr: 1e-3                        # learning rate (null = use default inside code)
 weight_decay: 0.01
-epochs_classifier: 200
-
+epochs_classifier: 40
+early_stopping: True
 
 
 # ─── Generator Settings ───────────────────────────────────────────────────────

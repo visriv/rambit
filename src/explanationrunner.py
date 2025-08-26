@@ -170,6 +170,7 @@ class ExplanationRunner:
         test_auprcs = [round(v.AUPRC, 6) for v in test_results.values()]
         test_precisions = [round(v.precision, 6) for v in test_results.values()]
         test_recall = [round(v.recall, 6) for v in test_results.values()]
+        test_f1 = [round(v.f1, 6) for v in test_results.values()]
         self.log.info(f"Average Accuracy = {np.mean(test_accs):.4f}\u00b1{np.std(test_accs):.4f}")
         self.log.info(f"Average AUC = {np.mean(test_aucs):.4f}\u00b1{np.std(test_aucs):.4f}")
         self.log.info(f"Average AUPRC = {np.mean(test_auprcs):.4f}\u00b1{np.std(test_auprcs):.4f}")
@@ -179,6 +180,7 @@ class ExplanationRunner:
         self.log.info(f"Model Precision on Tests = {test_precisions}.")
         self.log.info(f"Model Recall on Tests = {test_recall}.")
         self.log.info(f"Model AUPRC on Tests = {test_auprcs}.")
+        self.log.info(f"Model F1 on Tests = {test_f1}.")
 
     def run_inference(
         self,
