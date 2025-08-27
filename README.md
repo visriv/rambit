@@ -1,5 +1,5 @@
 
-## GRAPH WINIT
+## RaMbIT
 
 Authors:VIshal Srivastava, XYZ  
 [[paper](https://openreview.net/forum?id=123)]
@@ -7,7 +7,7 @@ Authors:VIshal Srivastava, XYZ
 
 ## Introduction
 
-This repository contains a full implementation of the GraphWINIT algorithm along with all the other
+This repository contains a full implementation of the RaMbIT algorithm along with all the other
 results for comparison. It includes a notebook that demonstrates the reproducibility of
 the figures and graphs.
 
