@@ -1,7 +1,7 @@
-# RaMbIT (a.k.a. JIMEx) (Work In Progress)
+# RaMbIT (Work In Progress)
 
-RaMbIT (Randomized Mask-Based Importance Testing) is a framework for **feature-time attribution in multivariate time series models**.  
-It builds on the ideas from [WinIT) but introduces a randomized masking procedure to obtain fine-grained attributions.
+RaMbIT (Randomized Mask-Based Importance Testing) (aka JIMEx in the codebase) is a framework for **feature-time attribution in multivariate time series models**.  
+It builds on the ideas from [WinIT](https://github.com/layer6ai-labs/WinIT) but introduces a randomized masking procedure to obtain fine-grained attributions.
 Very similar to Shapley Value Sampling
 Here we study the effect of different kinds of mask/coalitions on the attribution scores.
 
