@@ -1,251 +1,102 @@
+# RaMbIT (Work In Progress)
 
-## GRAPH WINIT
+RaMbIT (Randomized Mask-Based Importance Testing) (aka JIMEx in the codebase) is a framework for **feature-time attribution in multivariate time series models**.  
+It builds on the ideas from [WinIT](https://github.com/layer6ai-labs/WinIT) but introduces a randomized masking procedure to obtain fine-grained attributions.
+Very similar to Shapley Value Sampling
+Here we study the effect of different kinds of mask/coalitions on the attribution scores.
 
-Authors:VIshal Srivastava, XYZ  
-[[paper](https://openreview.net/forum?id=123)]
 
+---
 
-## Introduction
+## 🔍 What it does
+- Computes an **importance matrix** of shape **D × T** (features × timesteps) for each sequence in a batch.
+- Attribution is based on comparing model predictions between two masked versions:
+  - **M1**: base mask with target cell flipped (replaced by counterfactual)
+  - **M2**: base mask with target cell kept
+- The difference in prediction fidelity gives the **importance of that cell**.
+- Aggregates across:
+  - `L` random masks
+  - `W` window shifts
+  - `S` counterfactual samples
 
-This repository contains a full implementation of the GraphWINIT algorithm along with all the other
-results for comparison. It includes a notebook that demonstrates the reproducibility of
-the figures and graphs.
+---
 
-## Environment
+## ⚙️ Complexity
+For a batch of size **B**, features **D**, timesteps **T**:
+- Counterfactual generation: `O(D × S × B × T)`
+- Model forward passes: `O(L × W × S × f(B,D,T))`
+- Final attribution: **importance scores for every (d,t) cell**.
 
-```commandline
-conda create -n winit python=3.8.11
-conda activate winit
+---
+
+## 📦 Installation
+Clone this repo and install dependencies:
+
+```bash
+git clone https://github.com/<your-username>/rambit.git
+cd rambit
+pip install -r requirements.txt
 ```
 
-One of our dependencies is [TimeSynth](https://github.com/TimeSynth/TimeSynth),
-which contains dependencies on symengine. It is possible that there will be errors
-in installing symengine version 0.4. Installing TimeSynth from source will fix the issue.
+---
 
-```commandline
-git clone https://github.com/TimeSynth/TimeSynth.git
-cd TimeSynth
-python setup.py install
-cd ..
+## 🚀 Usage
+
+### Attribution API
+
+```python
+from rambit import RaMbIT
+
+# X: (B, D, T) input batch
+attributor = RaMbIT(model, num_samples=10, Wt_max=10, Wd_max=5, window_size=5, L=20)
+I_all = attributor.attribute(X)   # (B, D, T) importance map
 ```
 
-After TimeSynth is installed, run the following to install the package.
+### Key Parameters
+- `L`: number of random masks
+- `W`: window size for temporal shifts
+- `S`: number of counterfactual samples
+- `Wt_max, Wd_max`: max temporal & feature window sizes
+- `all_zero_cf`: if True, uses all-zero counterfactuals instead of sampling
 
-```commandline
-pip install -e .
+---
+
+## 📊 Metrics
+Following Dynamask definitions:
+- **Mask Information** \( I_M(A) \)
+- **Mask Entropy** \( S_M(A) \)
+
+RaMbIT supports computing these **with ground-truth salient sets (A)** on synthetic data, or **without A** on real data.
+
+---
+
+## 📂 Repository structure
+```
+rambit/
+├── src/
+│   ├── trainers/           # training utilities
+│   ├── models/             # model definitions (GRU, CNN, LSTM, Transformer)
+│   ├── utils/              # attribution, masking, metrics
+│   └── data_utils/         # synthetic & real dataset loaders
+├── scripts/
+│   ├── transformer_classifier.py
+│   └── ...
+├── ckpt/                   # checkpoints
+└── README.md
 ```
 
-## Dataset
+---
 
-### Synthetic datasets
+## 📝 Citation
+If you use this work, please cite:
 
-Our data are generated using the simulated data from [FIT Repo](https://github.com/sanatonek/time_series_explainability). 
-The data is already generated and is in the `./data/` directory.
-
-- The original spike dataset (`./data/simulated_spike_data`)
-- Four spike datasets with delays of 1 through 4 (`./data/simulated_spike_data_delay_X`).
-- The original state dataset (`./data/simulated_state_data`)
-
-
-### Mimic datasets
-
-MIMIC-III is a private dataset. Refer
-to [the official MIMIC-III documentation](https://mimic.mit.edu/iii/gettingstarted/dbsetup/).
-(ReadMe and datagen of MIMIC is from [Dynamask Repo](https://github.com/JonathanCrabbe/Dynamask).
-
-- Run this command to acquire the data and store it:
-   ```shell
-   python -m winit.datagen.icu_mortality --sqluser YOUR_USER --sqlpass YOUR_PASSWORD
-   ```
-  If everything happens properly, two files named ``adult_icu_vital.gz`` and ``adult_icu_lab.gz``
-  are stored in ``./data/mimic``.
-
-- Run this command to preprocess the data:
-   ```shell
-   python -m fit.data_generator.data_preprocess
-   ```
-  If everything happens properly, a file ``patient_vital_preprocessed.pkl`` is stored
-  in ``./data/mimic``.
-
-## Running the Code
-
-Note that our code is designed to be reproducible. We use `torch.use_deterministic_algorithms(True)`.
-For some of the code, this will induce an error. It is suggested that we set the environment
-variable `CUBLAS_WORKSPACE_CONFIG=:4096:8`. See [here](https://pytorch.org/docs/stable/generated/torch.use_deterministic_algorithms.html)
-for details.
-
-### Train the models
-
-Run these commands to train the models. By default, the models are 1-layer GRUs. To explore
-different
-types of models, use `--numlayers` and `--modeltype` args.
-
-```shell
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --train --skipexplain
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --delay 2 --train --skipexplain
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data state --train --skipexplain
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data mimic --train --skipexplain
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data data_l2x --train --skipexplain
+```
+@article{your2025rambit,
+  title={RaMbIT: Randomized Mask-Based Importance Testing for Time Series Attribution},
+  author={Your Name},
+  year={2025},
+  journal={GitHub Repository}
+}
 ```
 
-The models will be saved at `./ckpt/[MODELTYPE]/[DATASET]/`
-
-### Train the generators
-
-Run these commands to train the generators. It is expected to take a long time to train all
-generators. The MIMIC-III generators take about 36 hours to train for all the CVs and features in
-our machines.
-
-```shell
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --traingen --skipexplain
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --delay 2 --traingen --skipexplain
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data state --traingen --skipexplain
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data mimic --traingen --skipexplain
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data data_l2x --traingen --skipexplain
-```
-
-The generators will be saved at `./ckpt/[MODELTYPE]/[DATASET]/[CV]/feature_generator/` or
-`./ckpt/[MODELTYPE]/[DATASET]/[CV]/joint_generator/`
-
-### Compute, save and evaluate the the feature importances
-
-Run these commands to compute the importances. Use `--explainer` args to run different explainers.
-You
-can run several explainers at a time.
-
-```shell
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --eval 
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --delay 2 --eval
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data state --eval
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data mimic --eval
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data data_l2x --eval
-```
-
-The importances will be saved
-at `./output/[MODELTYPE]/[DATASET]/[EXPLAINER_NAME]_test_importance_score_[CV].pkl`. The results 
-of the evaluation will be saved at `./output/[MODELTYPE]/[DATASET]/results.csv`
-
-### Other baselines
-For FIT, we will need a joint feature generator. Thus we have to train the generators for FIT.
-
-```shell
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --traingen --skipexplain --explainer fit
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --delay 2 --traingen --skipexplain --explainer fit
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data state --traingen --skipexplain --explainer fit
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data mimic --traingen --skipexplain --explainer fit
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data data_l2x --traingen --skipexplain --explainer fit
-```
-
-Then we can compute, save and evaluate the importances. 
-
-```shell
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --eval --explainer deeplift gradientshap ig fo afo fit dynamask
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data spike --delay 2 --eval --explainer deeplift gradientshap ig fo afo fit dynamask
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data state --eval --explainer deeplift gradientshap ig fo afo fit dynamask
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data mimic --eval --explainer deeplift gradientshap ig fo afo fit dynamask
-CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run --data data_l2x --eval --explainer deeplift gradientshap ig fo afo dynamask
-```
-
-The results of the evaluation will be saved at the same file `./output/[MODELTYPE]/[DATASET]/results.csv`
-
-### Notebooks
-
-After running all the experiments needed, check out the notebook [here](notebooks/Reproduce.ipynb).
-
-
-## File structure
-
-<details>
-<summary>File structure</summary>
-
-```text
-.
-├── winex
-│   ├── Code
-├── data
-│   ├── simulated_spike_data
-│   ├── simulated_spike_data_delay_1
-│   ├── ...
-│   ├── simulated_state_data
-│   └── patient_vital_preprocessed.pkl
-├── ckpt
-│   ├── gru1layer
-│   │   ├── mimic
-│   │   │   ├── model files
-│   │   │   ├── 0 (cv)
-│   │   │   │   ├── feature_generator
-│   │   │   │   └── joint_generator
-│   │   │   ├── ..
-│   │   │   └── 4 (cv)
-│   │   │       ├── feature_generator
-│   │   │       └── joint_generator
-│   │   ├── ...
-│   │   └── simulated_spike_delay_2
-│   ├── ...
-│   └── lstm
-│       ├── mimic
-│       │   ├── model files
-│       │   ├── 0 (cv)
-│       │   │   ├── feature_generator
-│       │   │   └── joint_generator
-│       │   ├── ..
-│       │   └── 4 (cv)
-│       │       ├── feature_generator
-│       │       └── joint_generator
-│       ├── ...
-│       └── simulated_spike_delay_2
-├── output
-│   ├── gru1layer
-│   │   ├── mimic
-│   │   │   ├── importance files
-│   │   │   └── result.csv
-│   │   ├── ...
-│   │   └── simulated_spike_delay_2
-│   │       ├── importance files
-│   │       └── result.csv
-│   ├── ...
-│   └── lstm
-│       ├── mimic
-│       │   ├── importance files
-│       │   └── result.csv
-│       ├── ...
-│       └── simulated_spike_delay_2
-│           ├── importance files
-│           └── result.csv
-├── plots
-│   ├── gru1layer
-│   │   ├── mimic
-│   │   │   ├── box plots
-│   │   │   ├── generator_array
-│   │   │   │   └── generator training curve arrays
-│   │   │   └── array
-│   │   │       └── masking numpy arrays
-│   │   ├── ...
-│   │   └── simulated_spike_delay_2
-│   │       ├── box plots
-│   │       ├── generator_array
-│   │       │   └── generator training curve arrays
-│   │       └── array
-│   │           └── masking numpy arrays
-│   ├── ...
-│   └── lstm
-│       ├── mimic
-│       │   ├── box plots
-│       │   ├── generator_array
-│       │   │   └── generator training curve arrays
-│       │   └── array
-│       │       └── masking numpy arrays
-│       ├── ...
-│       └── simulated_spike_delay_2
-│           ├── box plots
-│           ├── generator_array
-│           │   └── generator training curve arrays
-│           └── array
-│               └── masking numpy arrays
-├── notebooks
-│   └── demo notebooks
-└── logs
-    └── log files
-```
-
-</details>
+---
