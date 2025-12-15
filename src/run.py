@@ -13,7 +13,7 @@ from omegaconf import OmegaConf
 import os
 import numpy as np
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import torch
 torch.use_deterministic_algorithms(True)
 torch.backends.cudnn.deterministic = True
@@ -22,7 +22,7 @@ torch.backends.cudnn.benchmark = False
 
 import torch.cuda
 
-from src.dataloader import Mimic, Boiler, MITECG, PAM, SimulatedSwitch, SimulatedState, SimulatedSpike, \
+from src.dataloader import Mimic, Boiler, MITECG, MITECG_Old, PAM, SimulatedSwitch, SimulatedState, SimulatedSpike, \
     WinITDataset, SimulatedData, SeqCombMV
 # from src.explainer.explainers import BaseExplainer, DeepLiftExplainer, IGExplainer, \
 #     GradientShapExplainer
@@ -85,7 +85,7 @@ if __name__ == '__main__':
 
         print(model_args.keys())
         runner.init_model(**model_args)
-        use_all_times = not isinstance(dataset, (SeqCombMV, Mimic, Boiler, MITECG, PAM))
+        use_all_times = not isinstance(dataset, (SeqCombMV, Mimic, Boiler, MITECG, MITECG_Old,  PAM))
         if train_models:
             runner.train_model(**model_train_args, use_all_times=use_all_times)
         else:

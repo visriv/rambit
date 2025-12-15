@@ -34,7 +34,7 @@ from src.modeltrainer import ModelTrainerWithCv
 from src.plot import BoxPlotter
 from src.utils.basic_utils import aggregate_scores
 
-
+eps = 1e-8
 class ExplanationRunner:
     """
     Our main class for training the model, training the generator, running explanations and
@@ -788,10 +788,10 @@ class ExplanationRunner:
                 mean_rank_min = np.mean(gt_ranks_min)
 
                 gt_score = ground_truth_importance.flatten()
-                print("gt_score.shape:", gt_score.shape)
+                # print("gt_score.shape:", gt_score.shape)
 
                 explainer_score = importance_scores.flatten()
-                print("explainer_score.shape:", explainer_score.shape)
+                # print("explainer_score.shape:", explainer_score.shape)
 
                 if absolutize:
                     explainer_score = np.abs(explainer_score)
@@ -889,7 +889,28 @@ class ExplanationRunner:
                 
                 
                 
+
+                # ---- NEW  metrics (Info/Entropy) with and without A ----
+ 
+
+                # m: attribution as a [0,1] mask (clip only; do not alter your existing pipeline)
+                m = np.clip(importance_scores, 0.0, 1.0)
+
+                # A: ground-truth salient-set as boolean mask (same shape as m)
+                A = (ground_truth_importance > 0).astype(bool)
                 
+                # compute per-sample, then average for a scalar summary (or keep the vectors if you prefer)
+                info_all_vec   = self.info_noA(m)
+                info_A_vec     = self.info_withA(m, A)
+                entropy_all_vec= self.entropy_noA(m)
+                entropy_A_vec  = self.entropy_withA(m, A)
+
+                info_all    = float(np.mean(info_all_vec))
+                info_A      = float(np.mean(info_A_vec))
+                entropy_all = float(np.mean(entropy_all_vec))
+                entropy_A   = float(np.mean(entropy_A_vec))
+
+
                 result = {
                     "AUROC": auc_score,
                     "AP": AP_score,
@@ -899,6 +920,10 @@ class ExplanationRunner:
                     "Mean rank": mean_rank,
                     "Mean rank (min)": mean_rank_min,
                     "Pos ratio": pos_ratio,
+                    "info_all": info_all,
+                    "info_A": info_A,
+                    "entropy_all": entropy_all,
+                    "entropy_A": entropy_A,
                 }
                 self.log.info(f"cv={cv}")
                 for k, v in result.items():
@@ -1054,7 +1079,36 @@ class ExplanationRunner:
         final.index.names = ["mask method", "cv", "direction", "k"]
         return final
 
+    def info_noA(self,m_):
+        # I_M over all entries
+        return -np.log(1.0 - m_ + eps).sum(axis=1)  # per-sample
 
+    def info_withA(self,m_, A_):
+        # I_M over subset A
+        out = np.zeros(m_.shape[0], dtype=np.float64)
+        for i in range(m_.shape[0]):
+            sel = A_[i]
+            if sel.any():
+                out[i] = -np.log(1.0 - m_[i, sel] + eps).sum()
+            else:
+                out[i] = 0.0
+        return out
+
+    def entropy_noA(self,m_):
+        # S_M over all entries
+        return -(m_ * np.log(m_ + eps) + (1.0 - m_) * np.log(1.0 - m_ + eps)).sum(axis=1)
+
+    def entropy_withA(self, m_, A_):
+        # S_M over subset A
+        out = np.zeros(m_.shape[0], dtype=np.float64)
+        for i in range(m_.shape[0]):
+            sel = A_[i]
+            if sel.any():
+                mm = m_[i, sel]
+                out[i] = -(mm * np.log(mm + eps) + (1.0 - mm) * np.log(1.0 - mm + eps)).sum()
+            else:
+                out[i] = 0.0
+        return out
 
     def _get_mask_array_path(self) -> pathlib.Path:
         return self.plot_path / self.dataset.get_name() / "array"

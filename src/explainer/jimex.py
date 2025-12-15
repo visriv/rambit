@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 from tqdm import tqdm
 from itertools import product
+import pickle
 
 class JIMEx(BaseExplainer):
     def __init__(
@@ -61,15 +62,121 @@ class JIMEx(BaseExplainer):
             return prob_distribution
         return p
     
+
+    def attribute_new(self, X: torch.Tensor) -> np.ndarray:
+        """
+        Compute JIMEx attributions for all cells (t,d) in input X.
+        Returns array of shape (B, D, T).
+        """
+
+        X = X.to(self.device)
+        B, D, T = X.shape
+
+        # (B,T,D) -> we'll permute back at the end
+        I_all = torch.zeros((B, T, D), device=self.device, dtype=X.dtype)
+
+        # ---------------------------------------------------------
+        # 1. Precompute CFs once
+        # Shape: (S, B, D, T)
+        CF = self._compute_cf(B, T - 1, X, self.all_zero_cf)
+        num_samples = CF.shape[0]
+
+        # ---------------------------------------------------------
+        # 2. Generate masks once (independent of (t,d))
+        all_M, t_max_list = [], []
+        for _ in range(self.L):
+            max_Wt = min(self.Wt_max, T)
+            min_Wt = min(self.Wt_min, max_Wt)
+            Wt = torch.randint(min_Wt, max_Wt + 1, (), device=self.device).item()
+
+            max_Wd = min(self.Wd_max, D)
+            min_Wd = min(self.Wd_min, max_Wd)
+            Wd = torch.randint(min_Wd, max_Wd + 1, (), device=self.device).item()
+
+            # valid start positions
+            t0 = torch.randint(0, T - Wt + 1, (), device=self.device).item()
+            d0 = torch.randint(0, D - Wd + 1, (), device=self.device).item()
+
+            # base mask M: (T, D)
+            M = torch.ones((T, D), device=self.device, dtype=X.dtype)
+            M[t0:t0 + Wt, d0:d0 + Wd] = 0.0
+
+            all_M.append(M)        # (T,D)
+            t_max_list.append(t0 + Wt)
+
+        # ---------------------------------------------------------
+        # 3. Iterate over masks, windows, CF samples
+        for l in range(self.L):
+            base_mask = all_M[l]            # (T,D)
+            t_first = t_max_list[l]
+
+            for w in range(1, self.window_size + 1):
+                t_target = t_first + w - 1
+                if t_target >= T:
+                    continue
+
+                # f_orig: model prediction on original prefix
+                with torch.no_grad():
+                    f_orig = self._model_predict(X[:, :, :t_target + 1])  # (B,)
+
+                # Evaluate with counterfactuals
+                for s in range(num_samples):
+                    CF_s = CF[s]  # (B,D,T)
+
+                    # Broadcast base mask
+                    M = base_mask.permute(1, 0).unsqueeze(0)  # (1,D,T), broadcast over B
+
+                    # Create masked variants
+                    X_masked = X.unsqueeze(0).expand(1, -1, -1, -1)[0]  # (B,D,T)
+
+                    # Two variants: flip (M1) and keep (M2) each cell
+                    # We'll loop over all (t,d) here
+                    for t in range(T):
+                        for d in range(D):
+                            # M2: base mask + ensure (t,d) kept
+                            M2 = M.clone()
+                            M2[:, d, t] = 1.0
+                            # M1: same but force (t,d) flipped
+                            M1 = M2.clone()
+                            M1[:, d, t] = 0.0
+
+                            X1 = X_masked * M1 + (1.0 - M1) * CF_s
+                            X2 = X_masked * M2 + (1.0 - M2) * CF_s
+
+                            # model predictions on prefix
+                            f1 = self._model_predict(X1[:, :, :t_target + 1])
+                            f2 = self._model_predict(X2[:, :, :t_target + 1])
+
+                            # compute metric differences
+                            i1 = self._compute_metric(f_orig, f1)  # (B,)
+                            i2 = self._compute_metric(f_orig, f2)  # (B,)
+
+                            delta = (i1 - i2)  # (B,)
+
+                            # Accumulate into attribution tensor
+                            I_all[:, t, d] += delta / (self.L * self.window_size * num_samples)
+
+        # ---------------------------------------------------------
+        return I_all.permute(0, 2, 1).detach().cpu().numpy()  # (B,D,T)
+
     
     def attribute(self, X: torch.Tensor) -> torch.Tensor:
         X = X.to(self.device)
         B, D, T = X.shape
 
         I_all = torch.zeros((B, T, D), device=self.device, dtype=X.dtype)
+        temp_probe = {}
+
         for t, d in tqdm(product(range(T), range(D)), total=T*D):
-            I_all[:, t, d] = self.attribute_one_cell(X, t, d, self.all_zero_cf)
-            # print("in JImex, one cell attributed, the 5 sample values of this cell are:", (t,d), I_all[:5, t, d] )
+            I_all[:, t, d], used_mask, used_W = self.attribute_one_cell(X, t, d, self.all_zero_cf)
+            temp_probe[str(t) + '_' + str(d) + '_mask' ] = used_mask
+            temp_probe[str(t) + '_' + str(d) + '_W' ] = used_W
+
+        # print("in JImex, one cell attributed, the 5 sample values of this cell are:", (t,d), I_all[:5, t, d] )
+        temp_probe['I_all'] = I_all.permute(0,2,1).detach().cpu().numpy()
+        out_dir = "/home/graph-winit/output/gru1layer/simulated_state/jimex/"
+        with open(out_dir + "temp_probe.pkl", "wb") as f:
+            pickle.dump(temp_probe, f)
         return I_all.permute(0,2,1).detach().cpu().numpy() # return in B x D x T shape
 
 
@@ -139,6 +246,10 @@ class JIMEx(BaseExplainer):
         CF = self._compute_cf(B, T-1, X, all_zero_cf) # output: ( num_samples, B, D T) 
         num_samples = CF.shape[0]
 
+        # list to output/dump what masks were used for a given (sample, t*, d*)
+
+        out_M = []
+        out_W = []
         # Now iterate over masks and obtain importance score based on prediction at t_target = t_max + w
         for l in range(self.L):
             I_cell_this_mask = 0
@@ -153,7 +264,6 @@ class JIMEx(BaseExplainer):
                 if (t_target >= T):
                     continue
                 
-
                 count_valid_windows += 1
                 CF_sbdt = CF.to(X.dtype)  # (S, B, D, T)
 
@@ -164,6 +274,10 @@ class JIMEx(BaseExplainer):
                 # all_M1[l] / all_M2[l] are (1, D, T); make them (num_samples, B, D, T) by broadcast
                 M1_sbdt = all_M1[l].unsqueeze(0)#.unsqueeze(1)  # (1, 1, D, T), will bcast to (num_samples, B, D, T)
                 M2_sbdt = all_M2[l].unsqueeze(0)#.unsqueeze(1)
+
+
+                out_M.append(M1_sbdt)
+                out_W.append(w)
 
                 # print("num_samples", num_samples )
                 # print("X_sbdt.shape:", X_sbdt.shape )
@@ -221,7 +335,9 @@ class JIMEx(BaseExplainer):
 
        
 
-        return I_cell
+        return I_cell, out_M, out_W
+
+
 
     def _compute_metric(self, p_y_exp: torch.Tensor, p_y_hat: torch.Tensor) -> torch.Tensor:
         """

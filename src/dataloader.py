@@ -456,6 +456,9 @@ class SeqCombMV(SimulatedData):
                 base_path=Path(self.data_path) / 'SeqCombMV'
             )
 
+
+
+
     def load_data(self, train_ratio=0.8):
         self.D = process_Synth(
             split_no = self.split_cv[0]+1,
@@ -859,10 +862,11 @@ class MITECG_Old(WinITDataset):
         self.file_name = file_name
         self.device = device
         self.data_path = data_path
+        self.split_cv = cv_to_use
 
 
     def load_data(self, train_ratio=0.8): 
-        train_chunk, val_chunk, test_chunk, _  = process_MITECG(split_no = self.cv_to_use[0]+1, 
+        train_chunk, val_chunk, test_chunk, _  = process_MITECG(split_no = self.split_cv[0]+1, 
                                                                 device = None, 
                                                                 hard_split = True, 
                                                                 normalize = False, 
@@ -874,15 +878,17 @@ class MITECG_Old(WinITDataset):
                                                                 )
 
 
-        X_train = train_chunk.X.permute(1,2,0)
+        X_train = train_chunk.X.permute(1,2,0) # T, B, D.  -> B, D, T
         X_test = test_chunk.X.permute(1,2,0)
         X_valid = val_chunk.X.permute(1,2,0)
 
-        y_train = train_chunk.y
-        y_test = test_chunk.y
-        y_valid = val_chunk.y
+        y_train = train_chunk.y.unsqueeze(1)     
+        y_test = test_chunk.y.unsqueeze(1)  
+        y_valid = val_chunk.y.unsqueeze(1)  
 
-        self._get_loaders(X_train, y_train, X_test, y_test,  X_valid, y_valid)
+        # reduction_ratio = (1-train_ratio)/0.20
+
+        self._get_loaders(X_train, y_train, X_test, y_test, X_valid, y_valid)
 
 
 
